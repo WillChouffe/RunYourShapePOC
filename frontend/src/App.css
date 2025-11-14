@@ -1,0 +1,30 @@
+/**
+ * App layout styles
+ */
+
+.app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-dark);
+}
+
+.map-section {
+  flex: 1;
+  position: relative;
+  height: 100%;
+}
+
+/* Responsive layout */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+  
+  .map-section {
+    height: 50vh;
+  }
+}
+

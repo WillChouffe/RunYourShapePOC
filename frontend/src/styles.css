@@ -1,0 +1,106 @@
+/**
+ * Global styles with neon-tech aesthetic
+ */
+
+:root {
+  /* Colors */
+  --bg-dark: #020617;
+  --bg-darker: #030712;
+  --panel-bg: rgba(11, 18, 32, 0.8);
+  --neon-yellow: #F5E642;
+  --neon-yellow-dim: #F5E64280;
+  --text-light: #E2E8F0;
+  --text-grey: #94A3B8;
+  --input-bg: #0F172A;
+  --border-dark: #1E293B;
+  
+  /* Spacing */
+  --panel-padding: 2rem;
+  --gap-sm: 0.5rem;
+  --gap-md: 1rem;
+  --gap-lg: 1.5rem;
+  --gap-xl: 2rem;
+  
+  /* Border radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  
+  /* Glow effects */
+  --glow-sm: 0 0 10px var(--neon-yellow-dim);
+  --glow-md: 0 0 20px var(--neon-yellow-dim), 0 0 40px var(--neon-yellow-dim);
+  --glow-lg: 0 0 30px var(--neon-yellow-dim), 0 0 60px var(--neon-yellow-dim);
+  
+  /* Typography */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-dark);
+  color: var(--text-light);
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Orbitron', monospace;
+  font-weight: 700;
+}
+
+/* Utility classes */
+.text-neon {
+  color: var(--neon-yellow);
+  text-shadow: var(--glow-sm);
+}
+
+.text-uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Hide leaflet attribution (optional, keep if you want) */
+.leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.6) !important;
+  color: var(--text-grey) !important;
+  font-size: 0.7rem;
+}
+
+.leaflet-control-attribution a {
+  color: var(--neon-yellow) !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--input-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neon-yellow-dim);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-yellow);
+}
+

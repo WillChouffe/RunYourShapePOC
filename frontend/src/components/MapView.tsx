@@ -63,6 +63,21 @@ function FitBounds({ coordinates }: { coordinates: [number, number][] | null }) 
   return null;
 }
 
+// Component to update map center when it changes
+function MapCenterUpdater({ center, zoom }: { center: MapPosition; zoom: number }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    // Smooth animation to new position
+    map.flyTo([center.lat, center.lon], zoom, {
+      duration: 1.5, // 1.5 seconds animation
+      easeLinearity: 0.25
+    });
+  }, [center.lat, center.lon, zoom, map]);
+  
+  return null;
+}
+
 export default function MapView({
   center,
   zoom,
@@ -85,6 +100,9 @@ export default function MapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
+        
+        {/* Map center updater */}
+        <MapCenterUpdater center={center} zoom={zoom} />
         
         {/* Map click handler */}
         <MapClickHandler onMapClick={onMapClick} />

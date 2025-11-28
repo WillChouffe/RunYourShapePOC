@@ -11,8 +11,8 @@ import './App.css';
 
 function App() {
   // Map state
-  const [mapCenter] = useState<MapPosition>(config.defaultMapCenter);
-  const [mapZoom] = useState(config.defaultZoom);
+  const [mapCenter, setMapCenter] = useState<MapPosition>(config.defaultMapCenter);
+  const [mapZoom, setMapZoom] = useState(config.defaultZoom);
   const [startPoint, setStartPoint] = useState<MapPosition | null>(null);
   
   // Route generation state
@@ -48,6 +48,12 @@ function App() {
   
   function handleMapClick(position: MapPosition) {
     setStartPoint(position);
+  }
+  
+  function handleLocationSearch(position: MapPosition) {
+    setStartPoint(position);
+    setMapCenter(position);
+    setMapZoom(14); // Zoom closer for searched locations
   }
   
   async function handleGenerateRoute() {
@@ -121,6 +127,7 @@ function App() {
         onSymbolChange={setSelectedSymbol}
         onGenerateRoute={handleGenerateRoute}
         onDownloadGPX={handleDownloadGPX}
+        onLocationSearch={handleLocationSearch}
         isGenerating={isGenerating}
         hasRoute={routeCoordinates !== null}
         routeDistance={routeDistance}

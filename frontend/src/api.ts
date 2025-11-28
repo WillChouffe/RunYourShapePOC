@@ -62,3 +62,18 @@ export async function downloadGPX(request: RouteRequest): Promise<Blob> {
   return response.data;
 }
 
+/**
+ * Geocode an address to coordinates
+ */
+export async function geocodeAddress(address: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const response = await api.get('/geocode', {
+      params: { address }
+    });
+    return { lat: response.data.lat, lon: response.data.lon };
+  } catch (error) {
+    console.error('Geocoding failed:', error);
+    return null;
+  }
+}
+

@@ -186,11 +186,18 @@ def generate_route(
         - coordinates: List of (lat, lon) points forming the route
         - distance_m: Total distance in meters
     """
+    print(f"\n=== ROUTE GENERATION START ===")
+    print(f"Start point: ({start_lat}, {start_lon})")
+    print(f"Target distance: {target_distance_km} km")
+    print(f"Symbol points: {len(symbol_polyline)}")
+    
     # Load graph if not provided
     if graph is None:
         # Use a larger radius to ensure we have enough space
         radius_km = max(target_distance_km * 0.8, settings.default_graph_radius_km)
+        print(f"Loading OSM graph with radius: {radius_km} km...")
         graph = get_graph_around_point(start_lat, start_lon, radius_km)
+        print(f"Graph loaded: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
     
     # The normalized polyline is in abstract units
     # We need to convert it to lat/lon space
@@ -207,10 +214,16 @@ def generate_route(
     best_distance = 0
     best_success_rate = 0
     
+    attempts = 0
+    successful_snaps = 0
+    
+    print(f"\nTrying {len(rotations)} rotations × 5 scales = {len(rotations) * 5} combinations...")
+    
     for rotation in rotations:
         # Transform the polyline
         # Start with the target scale
         for scale_factor in [1.0, 0.9, 0.8, 1.1, 1.2]:
+            attempts += 1
             scale = target_scale_deg * scale_factor
             
             # Translate so it's centered near the start point
@@ -224,9 +237,14 @@ def generate_route(
             # Snap to graph
             snapped_nodes, success_rate = snap_polyline_to_graph(transformed, graph)
             
-            # Need reasonable success rate
-            if success_rate < 0.3:
+            if attempts <= 3:  # Log first 3 attempts
+                print(f"  Attempt {attempts}: rotation={rotation}°, scale={scale_factor:.1f}x → snap_rate={success_rate:.1%}")
+            
+            # Need reasonable success rate (lowered for better results)
+            if success_rate < 0.2:
                 continue
+            
+            successful_snaps += 1
             
             # Build route
             route_nodes, distance_m = build_route_from_nodes(graph, snapped_nodes)
@@ -246,11 +264,24 @@ def generate_route(
                 best_success_rate = success_rate
     
     # Convert best route to coordinates
+    print(f"\n=== RESULTS ===")
+    print(f"Total attempts: {attempts}")
+    print(f"Successful snaps (>20%): {successful_snaps}")
+    print(f"Best route found: {'YES' if best_route else 'NO'}")
+    
     if best_route:
+        print(f"Best success rate: {best_success_rate:.1%}")
+        print(f"Route length: {best_distance/1000:.2f} km")
+        print(f"Route nodes: {len(best_route)}")
         coordinates = nodes_to_coordinates(graph, best_route)
         return coordinates, best_distance
     else:
         # Fallback: just return a small route near the start
+        print(f"⚠️ NO ROUTE FOUND - All combinations failed!")
+        print(f"Possible reasons:")
+        print(f"  - All snap rates < 20%")
+        print(f"  - Scale too large/small for this area")
+        print(f"  - Not enough streets in the area")
         start_node = nearest_node(graph, start_lat, start_lon)
         return [(start_lat, start_lon)], 0.0
 

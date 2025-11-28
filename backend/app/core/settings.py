@@ -14,12 +14,13 @@ class Settings(BaseSettings):
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     
     # OSM settings
-    osm_network_type: str = "walk"  # or "bike", "drive"
+    # Network types: "walk" (pedestrian), "bike" (cycling), "drive" (car), "all" (everything)
+    osm_network_type: str = "walk"  # Best for running/walking routes
     osm_cache_dir: Path = Path("./data/osm_cache")
     
     # Route generation settings
     default_graph_radius_km: float = 5.0
-    max_snap_distance_m: float = 200.0
+    max_snap_distance_m: float = 300.0  # Increased from 200 for better matching
     shape_sample_points: int = 100
     
     class Config:

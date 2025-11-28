@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import settings
 from app.api import symbols, routes
+from app.services.geocoding import geocode_address
 
 
 # Create FastAPI app
@@ -16,7 +17,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,6 +46,17 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/geocode")
+async def geocode(address: str):
+    """Geocode an address to lat/lon coordinates."""
+    result = geocode_address(address)
+    if result:
+        lat, lon = result
+        return {"lat": lat, "lon": lon, "address": address}
+    else:
+        return {"error": "Address not found"}, 404
 
 
 if __name__ == "__main__":

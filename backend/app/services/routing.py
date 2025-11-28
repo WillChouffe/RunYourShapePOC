@@ -14,6 +14,26 @@ from app.services.osm import (
 )
 
 
+def simplify_polyline(polyline: List[Tuple[float, float]], num_points: int = 30) -> List[Tuple[float, float]]:
+    """
+    Simplify a polyline to keep only the most important points.
+    Uses Douglas-Peucker-like approach by sampling at regular intervals.
+    
+    Args:
+        polyline: List of (x, y) points
+        num_points: Target number of points to keep
+    
+    Returns:
+        Simplified polyline
+    """
+    if len(polyline) <= num_points:
+        return polyline
+    
+    # Sample at regular intervals
+    indices = np.linspace(0, len(polyline) - 1, num_points, dtype=int)
+    return [polyline[i] for i in indices]
+
+
 def transform_polyline(
     polyline: List[Tuple[float, float]],
     scale: float,
@@ -230,16 +250,41 @@ def generate_route(
             attempts += 1
             scale = target_scale_deg * scale_factor
             
-            # Translate so it's centered near the start point
-            transformed = transform_polyline(
-                symbol_polyline,
-                scale,
-                rotation,
-                (start_lat, start_lon)
-            )
+            # First transform with rotation and scale (centered at origin)
+            arr = np.array(symbol_polyline)
+            arr = arr * scale
+            
+            # Rotate
+            angle_rad = np.deg2rad(rotation)
+            cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+            rotation_matrix = np.array([
+                [cos_a, -sin_a],
+                [sin_a, cos_a]
+            ])
+            arr = arr @ rotation_matrix.T
+            
+            # Find the closest point to origin (this will be placed at start point)
+            distances_to_origin = np.sqrt(np.sum(arr ** 2, axis=1))
+            closest_idx = np.argmin(distances_to_origin)
+            offset = arr[closest_idx]
+            
+            # Translate so the closest point is at the start location
+            arr = arr - offset + np.array([start_lat, start_lon])
+            
+            transformed = [(float(x), float(y)) for x, y in arr]
+            
+            # IMPORTANT: Simplify to reduce zigzags - keep only key points
+            # For star: ~25 points is enough to capture 5 branches
+            simplified = simplify_polyline(transformed, num_points=25)
             
             # Snap to graph
-            snapped_nodes, success_rate = snap_polyline_to_graph(transformed, graph)
+            snapped_nodes, success_rate = snap_polyline_to_graph(simplified, graph)
+            
+            # Remove consecutive duplicate nodes to avoid backtracking
+            unique_nodes = []
+            for node in snapped_nodes:
+                if not unique_nodes or node != unique_nodes[-1]:
+                    unique_nodes.append(node)
             
             if attempts <= 3:  # Log first 3 attempts
                 print(f"  Attempt {attempts}: rotation={rotation}°, scale={scale_factor:.1f}x → snap_rate={success_rate:.1%}")
@@ -250,8 +295,8 @@ def generate_route(
             
             successful_snaps += 1
             
-            # Build route
-            route_nodes, distance_m = build_route_from_nodes(graph, snapped_nodes)
+            # Build route using unique nodes (no consecutive duplicates)
+            route_nodes, distance_m = build_route_from_nodes(graph, unique_nodes)
             
             # Check if this is better than previous attempts
             # Prioritize shape matching over exact distance

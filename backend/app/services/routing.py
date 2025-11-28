@@ -188,16 +188,20 @@ def generate_route(
     """
     print(f"\n=== ROUTE GENERATION START ===")
     print(f"Start point: ({start_lat}, {start_lon})")
-    print(f"Target distance: {target_distance_km} km")
+    print(f"Target distance: {target_distance_km} km (±30% tolerance = {target_distance_km * 0.7:.1f}-{target_distance_km * 1.3:.1f} km)")
     print(f"Symbol points: {len(symbol_polyline)}")
     
     # Load graph if not provided
     if graph is None:
-        # Use a larger radius to ensure we have enough space
-        radius_km = max(target_distance_km * 0.8, settings.default_graph_radius_km)
+        # Use smaller radius for better performance (max 3 km)
+        radius_km = min(target_distance_km * 0.6, 3.0)
         print(f"Loading OSM graph with radius: {radius_km} km...")
-        graph = get_graph_around_point(start_lat, start_lon, radius_km)
-        print(f"Graph loaded: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
+        try:
+            graph = get_graph_around_point(start_lat, start_lon, radius_km)
+            print(f"Graph loaded: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
+        except Exception as e:
+            print(f"ERROR loading graph: {e}")
+            return [(start_lat, start_lon)], 0.0
     
     # The normalized polyline is in abstract units
     # We need to convert it to lat/lon space
@@ -208,8 +212,8 @@ def generate_route(
     target_scale_km = target_distance_km
     target_scale_deg = target_scale_km / 111.0
     
-    # Try multiple rotations
-    rotations = [0, 45, 90, 135, 180, 225, 270, 315]
+    # Try multiple rotations (reduced for performance)
+    rotations = [0, 90, 180, 270]  # 4 main angles instead of 8
     best_route = None
     best_distance = 0
     best_success_rate = 0
@@ -217,12 +221,12 @@ def generate_route(
     attempts = 0
     successful_snaps = 0
     
-    print(f"\nTrying {len(rotations)} rotations × 5 scales = {len(rotations) * 5} combinations...")
+    print(f"\nTrying {len(rotations)} rotations × 8 scales = {len(rotations) * 8} combinations...")
     
     for rotation in rotations:
         # Transform the polyline
-        # Start with the target scale
-        for scale_factor in [1.0, 0.9, 0.8, 1.1, 1.2]:
+        # Try more scale variations to find the right size
+        for scale_factor in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]:
             attempts += 1
             scale = target_scale_deg * scale_factor
             
@@ -250,18 +254,32 @@ def generate_route(
             route_nodes, distance_m = build_route_from_nodes(graph, snapped_nodes)
             
             # Check if this is better than previous attempts
-            # Prefer routes that are closer to target distance and have better snap rate
+            # Prioritize shape matching over exact distance
             distance_km = distance_m / 1000.0
             distance_error = abs(distance_km - target_distance_km) / target_distance_km
             
-            # Score combining success rate and distance accuracy
-            score = success_rate * (1.0 - distance_error * 0.5)
-            best_score = best_success_rate * (1.0 - abs(best_distance / 1000.0 - target_distance_km) / target_distance_km * 0.5) if best_route else 0
+            # Accept routes within ±30% of target (very tolerant)
+            if distance_error > 0.3:
+                continue  # Skip routes too far from target
+            
+            # Score prioritizing snap rate (shape quality) over distance precision
+            # Weight: 80% shape quality, 20% distance accuracy
+            score = success_rate * (1.0 - distance_error * 0.2)
+            best_score = best_success_rate * (1.0 - abs(best_distance / 1000.0 - target_distance_km) / target_distance_km * 0.2) if best_route else 0
             
             if score > best_score:
                 best_route = route_nodes
                 best_distance = distance_m
                 best_success_rate = success_rate
+                
+                # Early exit if we found a good enough route
+                if best_success_rate > 0.6 and distance_error < 0.25:
+                    print(f"✓ Excellent route found (snap={best_success_rate:.1%}, dist={distance_km:.2f}km), stopping early")
+                    break  # Exit scale factor loop
+        
+        # Exit rotation loop if excellent route found
+        if best_route and best_success_rate > 0.6:
+            break  # Exit rotation loop
     
     # Convert best route to coordinates
     print(f"\n=== RESULTS ===")

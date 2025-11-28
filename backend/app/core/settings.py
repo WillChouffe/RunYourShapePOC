@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     osm_cache_dir: Path = Path("./data/osm_cache")
     
     # Route generation settings
-    default_graph_radius_km: float = 5.0
+    default_graph_radius_km: float = 3.0  # Reduced for performance
     max_snap_distance_m: float = 300.0  # Increased from 200 for better matching
-    shape_sample_points: int = 100
+    shape_sample_points: int = 30  # Reduced from 100 for performance
     
     class Config:
         env_file = ".env"

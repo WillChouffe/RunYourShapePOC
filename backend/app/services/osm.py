@@ -41,7 +41,8 @@ def get_graph_around_point(
         (lat, lon),
         dist=radius_m,
         network_type=settings.osm_network_type,
-        simplify=True
+        simplify=True,
+        truncate_by_edge=True  # Cut exactly at radius for smaller graph
     )
     
     return graph

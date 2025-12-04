@@ -2,7 +2,7 @@
  * Controls component - UI panel for route generation
  */
 import { useState } from 'react';
-import type { Symbol, MapPosition } from '../types';
+import type { Symbol, MapPosition, GenerationMode } from '../types';
 import './Controls.css';
 
 interface ControlsProps {
@@ -18,6 +18,10 @@ interface ControlsProps {
   isGenerating: boolean;
   hasRoute: boolean;
   routeDistance: number | null;
+  mode: GenerationMode;
+  onModeChange: (mode: GenerationMode) => void;
+  searchRadius: number;
+  onSearchRadiusChange: (radius: number) => void;
 }
 
 export default function Controls({
@@ -33,10 +37,17 @@ export default function Controls({
   isGenerating,
   hasRoute,
   routeDistance,
+  mode,
+  onModeChange,
+  searchRadius,
+  onSearchRadiusChange,
 }: ControlsProps) {
   const [locationInput, setLocationInput] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const canGenerate = startPoint !== null && selectedSymbol !== null && !isGenerating;
+  const isSearchMode = mode === 'search';
+  const isPatternMode = mode === 'pattern';
+  const showRadiusSlider = isSearchMode || isPatternMode;
   
   // Search for location using Nominatim (OpenStreetMap)
   async function handleLocationSearch() {
@@ -70,6 +81,69 @@ export default function Controls({
         <h1 className="panel-title">SHAPE ROUTE GENERATOR</h1>
         <p className="panel-subtitle">Create running routes matching geometric shapes</p>
       </div>
+
+      {/* Mode selection */}
+      <div className="control-group">
+        <label className="control-label">MODE</label>
+        <div className="mode-options">
+          <label className={`mode-pill ${mode === 'projection' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="route-mode"
+              value="projection"
+              checked={mode === 'projection'}
+              onChange={() => onModeChange('projection')}
+            />
+            Precise
+          </label>
+          <label className={`mode-pill ${mode === 'search' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="route-mode"
+              value="search"
+              checked={mode === 'search'}
+              onChange={() => onModeChange('search')}
+            />
+            Search
+          </label>
+          <label className={`mode-pill ${mode === 'pattern' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="route-mode"
+              value="pattern"
+              checked={mode === 'pattern'}
+              onChange={() => onModeChange('pattern')}
+            />
+            Pattern ✨
+          </label>
+        </div>
+        {showRadiusSlider && (
+          <div className="search-radius">
+            <label className="control-label">
+              SEARCH RADIUS: <span className="distance-value">{searchRadius.toFixed(1)} KM</span>
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="6"
+              step="0.5"
+              value={searchRadius}
+              onChange={(e) => onSearchRadiusChange(parseFloat(e.target.value))}
+              className="distance-slider"
+            />
+            <div className="slider-labels">
+              <span>1 km</span>
+              <span>6 km</span>
+            </div>
+            <p className="mode-hint">
+              {isPatternMode 
+                ? "Finds road patterns that naturally match the shape's structure (e.g., 2 curves + 2 lines = heart)"
+                : "Explores nearby streets within this radius to find the best projection match."
+              }
+            </p>
+          </div>
+        )}
+      </div>
       
       {/* Location Search */}
       <div className="control-group">
@@ -102,7 +176,13 @@ export default function Controls({
             <span className="location-coords">
               {startPoint.lat.toFixed(4)}, {startPoint.lon.toFixed(4)}
             </span>
-            <span className="location-hint">Or click map to change</span>
+            <span className="location-hint">
+              {isPatternMode 
+                ? 'Center of pattern search area' 
+                : isSearchMode 
+                  ? 'Center of the search area' 
+                  : 'Or click map to change'}
+            </span>
           </div>
         ) : (
           <div className="location-placeholder">

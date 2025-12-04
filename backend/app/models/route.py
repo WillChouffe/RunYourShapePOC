@@ -1,6 +1,6 @@
 """Data models for route generation."""
 from pydantic import BaseModel, Field
-from typing import List, Tuple
+from typing import List, Tuple, Literal, Optional
 
 
 class RouteRequest(BaseModel):
@@ -9,6 +9,16 @@ class RouteRequest(BaseModel):
     start_lat: float = Field(..., ge=-90, le=90, description="Starting latitude")
     start_lon: float = Field(..., ge=-180, le=180, description="Starting longitude")
     target_distance_km: float = Field(..., gt=0, le=50, description="Target distance in kilometers")
+    mode: Literal["projection", "search", "pattern"] = Field(
+        "projection",
+        description="Routing mode: projection (exact SVG), search (best projection), or pattern (abstract shape matching)"
+    )
+    search_radius_km: Optional[float] = Field(
+        None,
+        gt=0,
+        le=10,
+        description="(Search/Pattern modes) radius around the location to explore"
+    )
 
 
 class RouteResponse(BaseModel):

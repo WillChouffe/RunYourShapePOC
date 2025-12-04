@@ -10,11 +10,15 @@ export interface Symbol {
   normalized_length: number;
 }
 
+export type GenerationMode = 'projection' | 'search' | 'pattern';
+
 export interface RouteRequest {
   symbol_id: string;
   start_lat: number;
   start_lon: number;
   target_distance_km: number;
+  mode?: GenerationMode;
+  search_radius_km?: number;
 }
 
 export interface RouteResponse {

@@ -6,7 +6,7 @@ import MapView from './components/MapView';
 import Controls from './components/Controls';
 import { getSymbols, generateRoute, downloadGPX } from './api';
 import { config } from './config';
-import type { Symbol, MapPosition, RouteResponse } from './types';
+import type { Symbol, MapPosition, RouteResponse, GenerationMode } from './types';
 import './App.css';
 
 function App() {
@@ -25,6 +25,8 @@ function App() {
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][] | null>(null);
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [currentRoute, setCurrentRoute] = useState<RouteResponse | null>(null);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>('projection');
+  const [searchRadius, setSearchRadius] = useState(2);
   
   // Load symbols on mount
   useEffect(() => {
@@ -67,6 +69,8 @@ function App() {
         start_lat: startPoint.lat,
         start_lon: startPoint.lon,
         target_distance_km: distance,
+        mode: generationMode,
+        search_radius_km: generationMode === 'search' ? searchRadius : undefined,
       });
       
       setCurrentRoute(route);
@@ -89,6 +93,8 @@ function App() {
         start_lat: startPoint.lat,
         start_lon: startPoint.lon,
         target_distance_km: distance,
+        mode: generationMode,
+        search_radius_km: generationMode === 'search' ? searchRadius : undefined,
       });
       
       // Create download link
@@ -131,6 +137,10 @@ function App() {
         isGenerating={isGenerating}
         hasRoute={routeCoordinates !== null}
         routeDistance={routeDistance}
+        mode={generationMode}
+        onModeChange={setGenerationMode}
+        searchRadius={searchRadius}
+        onSearchRadiusChange={setSearchRadius}
       />
     </div>
   );

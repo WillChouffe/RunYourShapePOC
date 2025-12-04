@@ -33,18 +33,25 @@ async def generate_route_endpoint(request: RouteRequest):
     
     # Generate route
     try:
-        coordinates, distance_m = generate_route(
+        # Extract shape name for pattern mode (e.g., "star_abc123" -> "star")
+        shape_name = request.symbol_id.split("_")[0].lower() if request.mode == "pattern" else None
+        
+        coordinates, distance_m, diagnostics = generate_route(
             symbol.polyline,
             request.start_lat,
             request.start_lon,
-            request.target_distance_km
+            request.target_distance_km,
+            mode=request.mode,
+            search_radius_km=request.search_radius_km,
+            shape_name=shape_name
         )
+        route_start = coordinates[0] if coordinates else (request.start_lat, request.start_lon)
         
         return RouteResponse(
             coordinates=coordinates,
             distance_m=distance_m,
             symbol_id=request.symbol_id,
-            start=(request.start_lat, request.start_lon)
+            start=route_start
         )
     except Exception as e:
         raise HTTPException(
@@ -69,12 +76,18 @@ async def generate_route_with_gpx(request: GPXRouteRequest):
     
     # Generate route
     try:
-        coordinates, distance_m = generate_route(
+        shape_name = request.symbol_id.split("_")[0].lower() if request.mode == "pattern" else None
+        
+        coordinates, distance_m, diagnostics = generate_route(
             symbol.polyline,
             request.start_lat,
             request.start_lon,
-            request.target_distance_km
+            request.target_distance_km,
+            mode=request.mode,
+            search_radius_km=request.search_radius_km,
+            shape_name=shape_name
         )
+        route_start = coordinates[0] if coordinates else (request.start_lat, request.start_lon)
         
         # Create GPX
         gpx_content = create_gpx_for_route(
@@ -87,7 +100,7 @@ async def generate_route_with_gpx(request: GPXRouteRequest):
             coordinates=coordinates,
             distance_m=distance_m,
             symbol_id=request.symbol_id,
-            start=(request.start_lat, request.start_lon),
+            start=route_start,
             gpx_content=gpx_content
         )
     except Exception as e:
@@ -113,11 +126,16 @@ async def download_gpx(request: GPXRouteRequest):
     
     # Generate route
     try:
-        coordinates, distance_m = generate_route(
+        shape_name = request.symbol_id.split("_")[0].lower() if request.mode == "pattern" else None
+        
+        coordinates, distance_m, diagnostics = generate_route(
             symbol.polyline,
             request.start_lat,
             request.start_lon,
-            request.target_distance_km
+            request.target_distance_km,
+            mode=request.mode,
+            search_radius_km=request.search_radius_km,
+            shape_name=shape_name
         )
         
         # Create GPX

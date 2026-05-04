@@ -14,6 +14,9 @@ build/
 .coverage
 htmlcov/
 .env
-data/
+data/osm_cache/
 *.log
+
+# Keep symbols for deployment
+# data/symbols/ is NOT ignored
 

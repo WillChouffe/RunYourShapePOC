@@ -1,6 +1,11 @@
 # Project-specific
-data/
 .env
+
+# OSM cache (large files, re-downloaded as needed)
+data/osm_cache/
+
+# Keep symbols in git for deployment
+# data/symbols/ is NOT ignored
 
 # Python
 __pycache__/

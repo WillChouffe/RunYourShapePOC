@@ -11,7 +11,13 @@ class Settings(BaseSettings):
     api_port: int = 8000
     data_dir: Path = Path("./data")
     symbols_dir: Path = Path("./data/symbols")
-    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:3000",
+        # Railway URLs will be added via CORS_ORIGINS env var
+    ]
     
     # OSM settings
     # Network types: "walk" (pedestrian), "bike" (cycling), "drive" (car), "all" (everything)

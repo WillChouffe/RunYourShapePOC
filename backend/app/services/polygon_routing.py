@@ -243,6 +243,71 @@ def create_circle_points(
     return points
 
 
+def extract_key_vertices(
+    polyline: List[Tuple[float, float]],
+    num_vertices: int = 8
+) -> List[Tuple[float, float]]:
+    """
+    Extract key vertices (corners) from a normalized polyline.
+    Samples uniformly along the polyline.
+    """
+    if len(polyline) <= num_vertices:
+        return polyline
+    
+    # Sample uniformly
+    step = len(polyline) / num_vertices
+    indices = [int(i * step) for i in range(num_vertices)]
+    
+    return [polyline[i] for i in indices]
+
+
+def scale_and_position_polyline(
+    polyline: List[Tuple[float, float]],
+    center_lat: float,
+    center_lon: float,
+    target_perimeter_m: float
+) -> List[Tuple[float, float]]:
+    """
+    Scale and position a normalized polyline to the target location.
+    """
+    if not polyline:
+        return []
+    
+    arr = np.array(polyline)
+    
+    # Find bounding box of normalized shape
+    min_x, min_y = arr.min(axis=0)
+    max_x, max_y = arr.max(axis=0)
+    width = max_x - min_x
+    height = max_y - min_y
+    
+    # Center of the shape
+    cx = (min_x + max_x) / 2
+    cy = (min_y + max_y) / 2
+    
+    # Scale to target size (perimeter -> approximate diameter)
+    target_size_m = target_perimeter_m / math.pi  # Rough diameter
+    
+    # Scale based on the largest dimension
+    max_dim = max(width, height) if max(width, height) > 0 else 1
+    scale = target_size_m / max_dim
+    
+    # Convert to lat/lon
+    positioned = []
+    for x, y in polyline:
+        # Center and scale
+        dx = (x - cx) * scale
+        dy = (y - cy) * scale
+        
+        # Convert meters to lat/lon (note: y is inverted for SVG)
+        lat = center_lat - dy / 111000  # Invert Y
+        lon = center_lon + dx / (111000 * math.cos(math.radians(center_lat)))
+        
+        positioned.append((lat, lon))
+    
+    return positioned
+
+
 def create_heart_points(
     center_lat: float,
     center_lon: float,
@@ -282,21 +347,21 @@ def generate_polygon_route(
     center_lat: float,
     center_lon: float,
     target_distance_km: float,
-    num_vertices: int = 6
+    num_vertices: int = 8
 ) -> Tuple[List[Tuple[float, float]], float, Dict]:
     """
     Generate a route using direction-locked crenel routing.
+    NOW USES THE ACTUAL SVG SHAPE!
     """
     print(f"\n=== DIRECTION-LOCKED CRENEL ROUTING ===")
     print(f"Center: ({center_lat}, {center_lon})")
     print(f"Target: {target_distance_km} km")
+    print(f"Input polyline: {len(symbol_polyline)} points")
     
     # Clear cache for fresh start
     clear_cache()
     
-    # Calculate radius for circle (perimeter = 2*pi*r)
-    radius_m = (target_distance_km * 1000) / (2 * math.pi)
-    print(f"Shape radius: {radius_m:.0f} m")
+    target_perimeter_m = target_distance_km * 1000
     
     # Load graph - keep it small for speed
     graph_radius = min(3.0, max(1.5, target_distance_km * 0.4))
@@ -306,10 +371,20 @@ def generate_polygon_route(
     if graph.number_of_nodes() < 50:
         return [(center_lat, center_lon)], 0.0, {"error": "graph_too_small"}
     
-    # Create shape points (circle for now - simpler and more reliable)
-    # Use 8 points for octagon approximation
-    shape_points = create_circle_points(center_lat, center_lon, radius_m, num_points=8)
-    print(f"Shape: octagon with 8 vertices")
+    # USE THE ACTUAL SVG POLYLINE!
+    if symbol_polyline and len(symbol_polyline) >= 3:
+        # Extract key vertices from the SVG
+        key_vertices = extract_key_vertices(symbol_polyline, num_vertices=num_vertices)
+        # Scale and position at target location
+        shape_points = scale_and_position_polyline(
+            key_vertices, center_lat, center_lon, target_perimeter_m
+        )
+        print(f"Shape: {len(shape_points)} vertices from SVG")
+    else:
+        # Fallback to circle if no valid polyline
+        radius_m = target_perimeter_m / (2 * math.pi)
+        shape_points = create_circle_points(center_lat, center_lon, radius_m, num_points=8)
+        print(f"Shape: octagon fallback (no valid SVG)")
     
     # Try a few rotations
     best_route = None

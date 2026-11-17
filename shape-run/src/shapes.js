@@ -111,6 +111,28 @@ export const SHAPES = [
     sharp: [0, 6, 12, 18],
   },
   {
+    // Back of the hand, middle finger up, other fingers folded. Starts at the
+    // bottom-left corner of the wrist and goes clockwise.
+    id: 'finger',
+    name: 'Middle Finger',
+    tagline: 'Against racist & sexist violence',
+    closed: true,
+    points: [
+      [-0.3, -1.0],
+      // thumb side of the palm, thumb folded across
+      [-0.33, -0.6], [-0.5, -0.42], [-0.52, -0.26], [-0.42, -0.2],
+      // folded index knuckle
+      [-0.38, -0.08], [-0.3, 0.02], [-0.2, 0.03],
+      // middle finger
+      [-0.12, 0.04], [-0.13, 0.6], [-0.11, 0.82], [0, 0.92], [0.11, 0.82], [0.13, 0.6], [0.12, 0.04],
+      // folded ring and pinky knuckles
+      [0.22, 0.05], [0.3, 0.0], [0.36, -0.08], [0.4, -0.18],
+      // pinky side of the palm down to the wrist
+      [0.36, -0.55], [0.3, -0.7], [0.3, -1.0],
+    ],
+    sharp: [0, 4, 8, 14, 21],
+  },
+  {
     id: 'star',
     name: 'Star',
     tagline: 'Bonus level',

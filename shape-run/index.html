@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07040f" />
+    <meta name="description" content="Shape Run: generate GPS art running routes and export them to Strava." />
+    <title>Shape Run</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Press+Start+2P&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+            <path d="M3 4h3v1h1v1h2V5h1V4h3v1h1v4h-1v1h-1v1h-1v1h-1v1H8v-1H7v-1H6v-1H5V9H4V8H3V5z" />
+          </svg>
+          <h1 class="brand-title">SHAPE<span>RUN</span></h1>
+          <span class="brand-badge">1P</span>
+        </div>
+        <div class="topbar-actions">
+          <button id="tilesBtn" class="chip-btn" type="button" aria-pressed="false">
+            <span class="dot"></span><span id="tilesLabel">NIGHT</span>
+          </button>
+          <button id="aboutBtn" class="chip-btn" type="button">ABOUT</button>
+        </div>
+      </header>
+
+      <div class="stage">
+        <div id="map" aria-label="Map. Click to set the starting point."></div>
+
+        <div class="hud" aria-live="polite">
+          <div class="hud-cell">
+            <span class="hud-label">TARGET</span>
+            <span class="hud-value" id="hudTarget">10.0</span><span class="hud-unit">KM</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">ROUTE</span>
+            <span class="hud-value" id="hudRoute">--.-</span><span class="hud-unit">KM</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">MATCH</span>
+            <span class="hud-value" id="hudMatch">--</span><span class="hud-unit">%</span>
+          </div>
+        </div>
+
+        <div class="loader" id="loader" hidden role="status">
+          <div class="loader-title"><span class="blink">&#9654;</span> <span id="loaderTitle">ROUTING</span></div>
+          <div class="loader-bar" id="loaderBar"></div>
+          <div class="loader-text" id="loaderText">Contacting the routing server…</div>
+          <button class="btn-ghost" id="cancelBtn" type="button">CANCEL</button>
+        </div>
+
+        <aside class="panel" id="panel" data-sheet="collapsed">
+          <button class="sheet-handle" id="sheetHandle" type="button" aria-label="Expand controls" aria-expanded="false">
+            <span></span>
+          </button>
+
+          <div class="panel-scroll" id="panelScroll">
+            <!-- 1. Shape -->
+            <section class="block">
+              <h2 class="block-title"><span class="stage-no">1</span>Select your shape</h2>
+              <div class="shape-grid" id="shapeGrid" role="radiogroup" aria-label="Shape"></div>
+            </section>
+
+            <!-- 2. Distance -->
+            <section class="block">
+              <h2 class="block-title"><span class="stage-no">2</span>Distance</h2>
+              <div class="distance-row">
+                <input id="distRange" type="range" min="2" max="42.2" step="0.1" value="10" aria-label="Distance in kilometres" />
+                <label class="num-field">
+                  <input id="distNum" type="number" min="1" max="42.2" step="0.1" value="10" inputmode="decimal" aria-label="Distance in kilometres" />
+                  <span>KM</span>
+                </label>
+              </div>
+              <div class="chips" id="distChips">
+                <button type="button" data-km="5">5K</button>
+                <button type="button" data-km="10">10K</button>
+                <button type="button" data-km="21.1">HALF</button>
+                <button type="button" data-km="42.2">FULL</button>
+              </div>
+            </section>
+
+            <!-- 3. Start -->
+            <section class="block">
+              <h2 class="block-title"><span class="stage-no">3</span>Start point</h2>
+              <form class="search" id="searchForm" autocomplete="off">
+                <input id="searchInput" type="search" placeholder="Search an address or place" enterkeyhint="search" aria-label="Search an address" />
+                <button class="btn-small" type="submit" id="searchBtn">GO</button>
+              </form>
+              <ul class="results" id="searchResults" hidden></ul>
+              <div class="start-row">
+                <button type="button" class="btn-small btn-outline" id="locateBtn">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v2M8 13v2M1 8h2M13 8h2" /><circle cx="8" cy="8" r="4" /><circle cx="8" cy="8" r="1.2" class="fill" /></svg>
+                  My location
+                </button>
+                <span class="hint">or tap the map / drag the <b class="pin-inline">S</b> pin</span>
+              </div>
+              <div class="coords" id="startCoords"></div>
+            </section>
+
+            <!-- 4. Tune -->
+            <section class="block">
+              <h2 class="block-title"><span class="stage-no">4</span>Tune it</h2>
+              <div class="tune">
+                <div class="tune-preview" id="tunePreview" aria-hidden="true"></div>
+                <div class="tune-controls">
+                  <label class="field-label" for="rotRange">Rotation <output id="rotOut">0°</output></label>
+                  <input id="rotRange" type="range" min="0" max="359" step="1" value="0" />
+                  <div class="tune-buttons">
+                    <button type="button" class="btn-small btn-outline" data-rot="-15" aria-label="Rotate 15 degrees left">↺ 15°</button>
+                    <button type="button" class="btn-small btn-outline" data-rot="15" aria-label="Rotate 15 degrees right">15° ↻</button>
+                    <button type="button" class="btn-small btn-outline toggle" id="mirrorBtn" aria-pressed="false">MIRROR</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field-label">Mode</div>
+              <div class="segmented" role="radiogroup" aria-label="Routing mode">
+                <label><input type="radio" name="mode" value="roads" checked /><span>
+                  <b>Follow roads</b><small>Streets &amp; paths</small></span></label>
+                <label><input type="radio" name="mode" value="free" /><span>
+                  <b>Free shape</b><small>Beach, park, field</small></span></label>
+              </div>
+
+              <div id="detailField">
+                <label class="field-label" for="detailRange">Detail <output id="detailOut">40</output> <small>waypoints</small></label>
+                <input id="detailRange" type="range" min="20" max="70" step="5" value="40" />
+              </div>
+            </section>
+
+            <!-- 5. Results -->
+            <section class="block" id="resultsBlock">
+              <h2 class="block-title"><span class="stage-no">5</span>Your route</h2>
+              <div class="empty" id="resultsEmpty">
+                <p>Press <b>Generate</b> to build the route. The dashed outline on the map is a live preview of where your shape will land.</p>
+              </div>
+              <div id="resultsBody" hidden>
+                <div class="stats">
+                  <div class="stat stat-wide">
+                    <span class="stat-label">DISTANCE</span>
+                    <span class="stat-value" id="statDist">0.00</span><span class="stat-unit">KM</span>
+                    <span class="stat-delta" id="statDelta"></span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">EST. TIME</span>
+                    <span class="stat-value" id="statTime">0:00</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">MATCH</span>
+                    <span class="stat-value" id="statMatch">0</span><span class="stat-unit">%</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">POINTS</span>
+                    <span class="stat-value" id="statPoints">0</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">MODE</span>
+                    <span class="stat-value stat-text" id="statMode">ROADS</span>
+                  </div>
+                </div>
+                <div class="pace-row">
+                  <label class="field-label" for="paceInput">Pace</label>
+                  <label class="num-field pace-field">
+                    <input id="paceInput" type="text" value="6:00" inputmode="numeric" aria-label="Pace in minutes per kilometre" />
+                    <span>MIN/KM</span>
+                  </label>
+                </div>
+                <label class="field-label" for="eventInput">Event name <small>(optional)</small></label>
+                <input id="eventInput" class="text-input" type="text" placeholder="e.g. La Grande Barre 2026" maxlength="80" />
+                <button type="button" class="btn-export" id="exportBtn">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 7 8 10.5 11.5 7M3 13h10" /></svg>
+                  EXPORT GPX
+                </button>
+                <details class="howto">
+                  <summary>How to import into Strava</summary>
+                  <ol>
+                    <li>Go to <a href="https://www.strava.com/athlete/routes" target="_blank" rel="noopener">strava.com</a> on a computer.</li>
+                    <li>Dashboard → <b>My Routes</b> → <b>Create New Route</b>.</li>
+                    <li>Click <b>Import</b> (upload icon) and pick the .gpx file.</li>
+                    <li>Save it, then open it in the Strava app to follow it while you run.</li>
+                  </ol>
+                  <p>The same file works with Garmin Connect (Courses → Import) and Komoot (Plan → Import GPX).</p>
+                </details>
+              </div>
+            </section>
+          </div>
+
+          <div class="panel-footer">
+            <button type="button" class="btn-start" id="generateBtn">
+              <span class="btn-start-arrow">&#9654;</span>
+              <span id="generateLabel">GENERATE</span>
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <dialog class="about" id="aboutDialog" aria-labelledby="aboutTitle">
+      <form method="dialog">
+        <h2 id="aboutTitle"><span class="blink">&#9654;</span> ABOUT</h2>
+        <p>
+          Shape Run turns your run into GPS art. Charity runs are popping up where every participant draws the same
+          shape on the map, like <b>La Grande Barre</b> in Anglet, which raises funds for men's cancers
+          (prostate and testicular).
+        </p>
+        <p>
+          The goal: let anyone organise one. Pick a shape, a distance and a starting point, and get a route that's
+          ready to run on Strava, Garmin or Komoot.
+        </p>
+        <a class="btn-export" href="#" id="fundraiseLink">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5S2 10 2 6a3 3 0 0 1 6-1 3 3 0 0 1 6 1c0 4-6 7.5-6 7.5z" /></svg>
+          SUPPORT THE FUNDRAISER
+        </a>
+        <p class="fine">
+          Map data &amp; tiles &copy; OpenStreetMap contributors · Routing by FOSSGIS OSRM · Search by
+          Nominatim. Routes follow public map data: always check the route is safe and legal before you run it.
+        </p>
+        <button class="btn-small" value="close">CLOSE</button>
+      </form>
+    </dialog>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

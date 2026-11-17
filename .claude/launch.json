@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "shape-run", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "shape-run", "run", "dev", "--", "--port", "5174", "--strictPort"], "port": 5174 }
+  ]
+}

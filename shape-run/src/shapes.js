@@ -111,26 +111,30 @@ export const SHAPES = [
     sharp: [0, 6, 12, 18],
   },
   {
-    // Icon-style hand: straight edges and chamfered corners, which streets
-    // can follow much better than curves. Middle finger up, index and ring
-    // fingers as short stubs. Starts at the bottom-left corner, clockwise.
+    // Traced from a classic middle-finger icon (200 px canvas, y down):
+    // thumb on the left, index stub, tall middle finger, ring and pinky
+    // stubs stepping down, rounded palm. Starts bottom-left, clockwise.
     id: 'finger',
     name: 'Middle Finger',
     tagline: 'Against racist & sexist violence',
     closed: true,
     points: [
-      [-0.3, -1.0], [-0.42, -0.88],
-      // left side of the palm, then the index stub
-      [-0.42, 0.24], [-0.35, 0.32], [-0.25, 0.32], [-0.18, 0.24],
-      [-0.18, 0.1], [-0.12, 0.1],
+      [80, 170], [64, 162], [58, 150], [55, 125],
+      // thumb
+      [55, 104], [60, 101], [71, 101],
+      // index stub
+      [71, 82], [75, 78], [83, 78], [88, 82],
       // middle finger
-      [-0.12, 0.94], [-0.05, 1.02], [0.05, 1.02], [0.12, 0.94],
-      [0.12, 0.1], [0.18, 0.1],
-      // ring stub, then the right side of the palm
-      [0.18, 0.18], [0.25, 0.26], [0.35, 0.26], [0.42, 0.18],
-      [0.42, -0.88], [0.3, -1.0],
-    ],
-    sharp: Array.from({ length: 20 }, (_, i) => i), // every vertex is a corner
+      [88, 38], [92, 33], [102, 33], [107, 38],
+      // ring stub, then pinky stub
+      // (small dip between them stands in for the icon's inner line)
+      [107, 82], [110, 80], [120, 80], [123, 84], [125, 93],
+      [128, 87], [138, 87], [141, 92],
+      // right side of the palm and the rounded bottom
+      [141, 140], [136, 155], [124, 165], [110, 170],
+    ].map(([x, y]) => [x, -y]),
+    // corners everywhere except the rounded palm bottom
+    sharp: [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26],
   },
   {
     id: 'star',

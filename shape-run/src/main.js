@@ -29,6 +29,7 @@ const state = {
   mirror: false,
   mode: 'roads',
   detail: 40,
+  auto: true, // try variants, rotations and shifts in the background
   tiles: 'night',
   result: null,
   busy: false,
@@ -54,6 +55,7 @@ const osmTiles = () =>
 const tileLayers = { night: osmTiles(), day: osmTiles() };
 
 const map = L.map('map', { zoomControl: false, preferCanvas: false }).setView([state.start.lat, state.start.lng], 14);
+if (import.meta.env.DEV) Object.assign(window, { __map: map, __L: L }); // debugging aid
 L.control.zoom({ position: 'topright' }).addTo(map);
 tileLayers.night.addTo(map);
 document.body.classList.add('tiles-night');
@@ -347,7 +349,56 @@ function buildFreeResult(shape, { fallback = false } = {}) {
   };
 }
 
-async function buildRoadResult(shape, signal) {
+/* Shape-following router: our own A* on OSM streets, in a Web Worker. */
+let worker = null;
+
+function planOnStreets(shape, signal) {
+  return new Promise((resolve, reject) => {
+    if (!worker) worker = new Worker(new URL('./plan.worker.js', import.meta.url), { type: 'module' });
+    const w = worker;
+    const onAbort = () => {
+      // The search itself is synchronous: stop it by dropping the worker.
+      w.terminate();
+      if (worker === w) worker = null;
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    w.onmessage = ({ data }) => {
+      if (data.type === 'progress') return setLoaderStage(data.stage, data.text);
+      signal.removeEventListener('abort', onAbort);
+      if (data.type === 'error') return reject(new RoutingError(data.message));
+      const target = state.distanceKm * 1000;
+      resolve({
+        ...data,
+        shape,
+        mode: 'roads',
+        engine: 'streets',
+        err: Math.abs(data.distance - target) / target,
+      });
+    };
+    w.postMessage({
+      type: 'plan',
+      shapeId: state.shapeId,
+      rotation: state.rotation,
+      mirror: state.mirror,
+      start: state.start,
+      target: state.distanceKm * 1000,
+      detail: state.detail,
+      auto: state.auto,
+    });
+  });
+}
+
+const STAGES = 4;
+function setLoaderStage(stage, text) {
+  $('loaderBar').innerHTML = Array.from({ length: STAGES }, (_, i) =>
+    `<i class="${i + 1 < stage ? 'on' : i + 1 === stage ? 'on active' : ''}"></i>`).join('');
+  $('loaderTitle').textContent = `STAGE ${stage}/${STAGES}`;
+  $('loaderText').textContent = text;
+}
+
+/* Fallback: public OSRM shortest-path router between waypoints. */
+async function buildOsrmResult(shape, signal) {
   const target = state.distanceKm * 1000;
   let scale = previewScale(shape);
   let best = null;
@@ -364,7 +415,7 @@ async function buildRoadResult(shape, signal) {
 
     if (!best || err < best.err) {
       const ideal = idealLatLngs(shape, scale);
-      best = { shape, scale, ideal, path, distance, err, skipped, mode: 'roads', iterations: it };
+      best = { shape, scale, ideal, path, distance, err, skipped, mode: 'roads', engine: 'osrm', iterations: it };
     }
     if (err <= TOLERANCE) break;
     scale = nextScale(tries, { scale, distance }, target);
@@ -405,12 +456,28 @@ async function generate() {
   state.abort = controller;
   setBusy(true);
   try {
-    const result = await buildRoadResult(shape, controller.signal);
+    let result;
+    try {
+      setLoaderStage(1, 'Preparing…');
+      result = await planOnStreets(shape, controller.signal);
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      console.warn(e);
+      toast(`${e.message}. Falling back to the basic router.`, 'warn', 5000);
+      result = await buildOsrmResult(shape, controller.signal);
+    }
     showResult(result);
+    if (result.engine === 'streets' && state.auto) {
+      const bits = [];
+      if (result.dRot) bits.push(`rotated ${result.dRot > 0 ? '+' : ''}${result.dRot}°`);
+      if (result.shift) bits.push('start slid along the outline');
+      if (result.variantName) bits.push(`${result.variantName} variant`);
+      toast(`Auto-tune tested ${result.tested} placements${bits.length ? `: ${bits.join(', ')}` : ', the original fits best'}.`, 'ok', 6500);
+    }
     if (result.err > TOLERANCE) {
       toast(`Closest match: ${(result.distance / 1000).toFixed(2)} km (${(result.err * 100).toFixed(0)}% off). Try another start point or rotation.`, 'warn');
     } else {
-      toast(`Route locked in! ${(result.distance / 1000).toFixed(2)} km in ${result.iterations} ${result.iterations > 1 ? 'tries' : 'try'}.`, 'ok');
+      toast(`Route locked in! ${(result.distance / 1000).toFixed(2)} km, ${result.match}% match.`, 'ok');
     }
     if (result.skipped > 0) {
       toast(`${result.skipped} waypoint${result.skipped > 1 ? 's' : ''} fell off the path network (water, private land) and ${result.skipped > 1 ? 'were' : 'was'} skipped. Rotating or moving the start can help.`, 'warn', 6500);
@@ -591,6 +658,11 @@ function wire() {
       invalidate({ fit: true });
     }),
   );
+  $('autoBtn').addEventListener('click', () => {
+    state.auto = !state.auto;
+    $('autoBtn').setAttribute('aria-pressed', String(state.auto));
+    invalidate();
+  });
   $('detailRange').addEventListener('input', (e) => {
     state.detail = +e.target.value;
     $('detailOut').textContent = state.detail;

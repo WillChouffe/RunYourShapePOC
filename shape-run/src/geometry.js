@@ -245,27 +245,27 @@ function pointSegDist(p, a, b) {
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
 
-function meanDistTo(points, poly) {
-  let sum = 0;
-  for (const p of points) {
+function distsTo(points, poly) {
+  return points.map((p) => {
     let best = Infinity;
     for (let i = 1; i < poly.length; i++) {
       const d = pointSegDist(p, poly[i - 1], poly[i]);
       if (d < best) best = d;
     }
-    sum += best;
-  }
-  return sum / points.length;
+    return best;
+  });
 }
 
 /**
- * 0-100 score of how well the route traces the ideal shape
- * (symmetric mean deviation relative to the shape size).
+ * Strict 0-100 score of how well the route traces the ideal shape: blends
+ * the mean and 90th-percentile gap (both ways) relative to the shape size.
+ * Same formula as fidelity() in planner.js.
  */
 export function shapeMatch(route, ideal, origin, sizeM) {
-  const r = resample(toLocal(route, origin), 240);
-  const s = resample(toLocal(ideal, origin), 240);
-  const avg = (meanDistTo(r, s) + meanDistTo(s, r)) / 2;
-  const score = 1 - avg / (0.12 * sizeM);
-  return Math.round(Math.max(0, Math.min(1, score)) * 100);
+  const r = resample(toLocal(route, origin), 300);
+  const s = resample(toLocal(ideal, origin), 300);
+  const ds = [...distsTo(r, s), ...distsTo(s, r)].sort((x, y) => x - y);
+  const mean = ds.reduce((t, d) => t + d, 0) / ds.length;
+  const m = 0.5 * mean + 0.5 * ds[Math.floor(ds.length * 0.9)];
+  return Math.round(Math.max(0, Math.min(1, 1 - m / (0.05 * sizeM))) * 100);
 }

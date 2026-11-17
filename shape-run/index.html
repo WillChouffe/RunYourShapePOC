@@ -129,6 +129,10 @@
               </div>
 
               <div id="detailField">
+                <div class="auto-row">
+                  <button type="button" class="btn-small btn-outline toggle" id="autoBtn" aria-pressed="true">AUTO-TUNE</button>
+                  <span class="hint">Also tries shape variants, small rotations and shifts, and keeps the one that fits the streets best.</span>
+                </div>
                 <label class="field-label" for="detailRange">Detail <output id="detailOut">40</output> <small>waypoints</small></label>
                 <input id="detailRange" type="range" min="20" max="70" step="5" value="40" />
               </div>
@@ -218,8 +222,8 @@
           SUPPORT THE FUNDRAISER
         </a>
         <p class="fine">
-          Map data &amp; tiles &copy; OpenStreetMap contributors · Routing by FOSSGIS OSRM · Search by
-          Nominatim. Routes follow public map data: always check the route is safe and legal before you run it.
+          Map data &amp; tiles &copy; OpenStreetMap contributors · Street data via Overpass API · Fallback routing by FOSSGIS OSRM ·
+          Search by Nominatim. Routes follow public map data: always check the route is safe and legal before you run it.
         </p>
         <button class="btn-small" value="close">CLOSE</button>
       </form>

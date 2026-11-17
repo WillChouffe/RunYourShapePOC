@@ -9,6 +9,10 @@
  *  - sharp  : indices of control points that are corners (no smoothing
  *             across them). Everything else is smoothed with Catmull-Rom.
  *
+ *  - variants : optional alternative outlines ({ variantName, points,
+ *               sharp }). The UI only shows the main one, but the route
+ *               search also tries every variant and keeps the best fit.
+ *
  * To add a shape, push a new object into SHAPES. That's it.
  */
 
@@ -37,11 +41,11 @@ function mustachePoints() {
   return [[0, 0.1], ...right, [0, -0.02], ...left];
 }
 
-function starPoints() {
+function starPoints(branches = 5, inner = 0.42) {
   const pts = [];
-  for (let k = 0; k < 10; k++) {
-    const a = Math.PI / 2 - (k * Math.PI) / 5; // clockwise from the top
-    const r = k % 2 === 0 ? 1 : 0.42;
+  for (let k = 0; k < branches * 2; k++) {
+    const a = Math.PI / 2 - (k * Math.PI) / branches; // clockwise from the top
+    const r = k % 2 === 0 ? 1 : inner;
     pts.push([r * Math.cos(a), r * Math.sin(a)]);
   }
   return pts;
@@ -55,6 +59,17 @@ export const SHAPES = [
     closed: true,
     points: heartPoints(),
     sharp: [0, 8],
+    variants: [
+      {
+        variantName: 'angular heart',
+        points: [
+          [0, -1], [-0.95, 0.05], [-1, 0.45], [-0.8, 0.8], [-0.45, 0.88], [-0.15, 0.7], [0, 0.5],
+          [0.15, 0.7], [0.45, 0.88], [0.8, 0.8], [1, 0.45], [0.95, 0.05],
+        ],
+        sharp: [0, 1, 6, 11],
+      },
+      { variantName: 'wide heart', points: heartPoints().map(([x, y]) => [x * 1.2, y]), sharp: [0, 8] },
+    ],
   },
   {
     id: 'ribbon',
@@ -88,6 +103,19 @@ export const SHAPES = [
       [-0.38, -0.48], [-0.52, -0.62], [-0.5, -0.85], [-0.32, -0.98], [-0.12, -0.92],
     ],
     sharp: [0, 6, 7, 8, 14, 15, 16],
+    variants: [
+      {
+        variantName: 'longer shaft',
+        points: [
+          [0, -0.72], [0.12, -0.92], [0.32, -0.98], [0.5, -0.85], [0.52, -0.62], [0.38, -0.48],
+          [0.2, -0.45], [0.2, 0.6],
+          [0.3, 0.65], [0.3, 0.82], [0.2, 1.02], [0, 1.1], [-0.2, 1.02], [-0.3, 0.82], [-0.3, 0.65],
+          [-0.2, 0.6], [-0.2, -0.45],
+          [-0.38, -0.48], [-0.52, -0.62], [-0.5, -0.85], [-0.32, -0.98], [-0.12, -0.92],
+        ],
+        sharp: [0, 6, 7, 8, 14, 15, 16],
+      },
+    ],
   },
   {
     id: 'fish',
@@ -101,6 +129,17 @@ export const SHAPES = [
       [-0.4, -0.15], [-0.1, -0.36], [0.35, -0.42], [0.75, -0.28],
     ],
     sharp: [0, 5, 6, 7, 8, 9],
+    variants: [
+      {
+        variantName: 'long nose & dorsal fin',
+        points: [
+          [1.2, 0.0], [0.8, 0.28], [0.4, 0.42], [0.2, 0.45], [0.0, 0.68], [-0.12, 0.42],
+          [-0.4, 0.15], [-0.52, 0.07], [-0.92, 0.4], [-0.8, 0.0], [-0.92, -0.4], [-0.52, -0.07],
+          [-0.4, -0.15], [-0.1, -0.36], [0.35, -0.42], [0.8, -0.26],
+        ],
+        sharp: [0, 4, 5, 7, 8, 9, 10, 11],
+      },
+    ],
   },
   {
     id: 'mustache',
@@ -135,6 +174,20 @@ export const SHAPES = [
     ].map(([x, y]) => [x, -y]),
     // corners everywhere except the rounded palm bottom
     sharp: [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26],
+    variants: [
+      {
+        // Thin middle finger: run it as an out-and-back along a single street.
+        variantName: 'single-street finger',
+        points: [
+          [80, 170], [64, 162], [58, 150], [55, 125], [55, 104], [60, 101], [71, 101],
+          [71, 82], [75, 78], [83, 78], [88, 82],
+          [95, 82], [95, 36], [97, 33], [99, 36], [99, 82],
+          [107, 82], [110, 80], [120, 80], [123, 84], [125, 93], [128, 87], [138, 87], [141, 92],
+          [141, 140], [136, 155], [124, 165], [110, 170],
+        ].map(([x, y]) => [x, -y]),
+        sharp: [0, ...Array.from({ length: 22 }, (_, i) => i + 3), 27],
+      },
+    ],
   },
   {
     id: 'star',
@@ -143,6 +196,10 @@ export const SHAPES = [
     closed: true,
     points: starPoints(),
     sharp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    variants: [
+      { variantName: 'six-point star', points: starPoints(6, 0.5), sharp: [...Array(12).keys()] },
+      { variantName: 'chunky star', points: starPoints(5, 0.55), sharp: [...Array(10).keys()] },
+    ],
   },
 ];
 

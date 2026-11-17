@@ -456,7 +456,7 @@ export function search(g, cands, { start, target, detail, onProgress }) {
     let scale = first.scale;
     const min = 0.7 * scale0(first);
     const max = 1.2 * scale0(first);
-    for (let it = 0; it < 4 && Math.abs(best.distance - target) / target > 0.03; it++) {
+    for (let it = 0; it < 7 && Math.abs(best.distance - target) / target > 0.025; it++) {
       scale = nextScale(tries, scale, target, min, max);
       const r = tryScale(g, sc, first, scale, sx, sy, detail);
       if (!r) break;
@@ -481,7 +481,7 @@ function tryScale(g, sc, c, scale, sx, sy, detail) {
 /** Higher is better: shape fidelity first, with a steep penalty past 5% distance error. */
 function rank(r, target) {
   const err = Math.abs(r.distance - target) / target;
-  return r.match - 400 * Math.max(0, err - 0.05) - 20 * err;
+  return r.match - 1500 * Math.max(0, err - 0.05) - 30 * err;
 }
 
 function nextScale(tries, current, target, min, max) {

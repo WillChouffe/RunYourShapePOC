@@ -3,7 +3,8 @@
  * smooth. The street graph is kept between runs while the area still fits.
  */
 import { getShape } from './shapes.js';
-import { fetchNetwork, buildGraph } from './osm.js';
+import { fetchNetwork, buildGraph, linesFromOverpass } from './osm.js';
+import { fetchTileLines } from './tiles.js';
 import { candidates, searchBBox, search, toLatLng } from './planner.js';
 
 let cache = null; // { bbox, graph }
@@ -34,9 +35,22 @@ self.onmessage = async ({ data }) => {
 
     if (!cache || !inside(bbox, cache.bbox)) {
       progress({ stage: 1, text: 'Downloading streets & paths around you…' });
-      const elements = await fetchNetwork(bbox, controller.signal, (text) => progress({ stage: 1, text }));
-      progress({ stage: 1, text: 'Building the street graph…' });
-      cache = { bbox, graph: buildGraph(elements, start) };
+      const status = (text) => progress({ stage: 1, text });
+      let graph;
+      try {
+        // Primary: OpenFreeMap vector tiles (CDN, no rate limits).
+        const lines = await fetchTileLines(bbox, controller.signal, status);
+        status('Building the street graph…');
+        graph = buildGraph(lines, start, { repair: true });
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        // Fallback: public Overpass servers.
+        console.warn('Vector tiles failed, trying Overpass', e);
+        const elements = await fetchNetwork(bbox, controller.signal, status);
+        status('Building the street graph…');
+        graph = buildGraph(linesFromOverpass(elements), start);
+      }
+      cache = { bbox, graph };
     }
     const g = cache.graph;
     const best = search(g, cands, { start: local(g.origin, start), target, detail, onProgress: progress });

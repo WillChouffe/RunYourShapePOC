@@ -21,7 +21,8 @@ Open http://localhost:5173. `npm run build` outputs a static site to `dist/`.
 | Module | Role |
 | --- | --- |
 | `src/shapes.js` | Shape library: control points, `closed`, `sharp` corners, optional `variants` tried in the background. Add a shape by pushing an object. |
-| `src/osm.js` | Downloads the walkable street network from Overpass (with mirrors) and builds a graph in local metres. |
+| `src/tiles.js` | Main street source: OpenFreeMap z14 vector tiles (CDN, no key, no rate limit), walkable classes only. |
+| `src/osm.js` | Builds the street graph in local metres (repairs junctions lost in vector tiles); Overpass download as a fallback. |
 | `src/planner.js` | Shape-following router (corridor A*), placement search, river/bridge check, fidelity score. |
 | `src/plan.worker.js` | Runs download + search in a Web Worker; keeps the street graph between runs. |
 | `src/routing.js` | Fallback: FOSSGIS OSRM shortest-path routing between waypoints. |
@@ -31,7 +32,7 @@ Open http://localhost:5173. `npm run build` outputs a static site to `dist/`.
 | `src/main.js` | Map (Leaflet + OSM tiles) and UI. |
 
 **Follow roads**:
-1. Download the streets and paths around the start (Overpass), once per area.
+1. Download the streets and paths around the start from OpenFreeMap vector tiles (Overpass if that fails), once per area.
 2. Build candidates: the shape and its variants, rotated by up to ±30° (Auto-tune), with the start slid a little along the outline.
 3. Pre-score each candidate by how much of its outline runs along a street with the same direction, then check the best ones for bottlenecks: if walking between neighbouring outline points is much longer than the straight line, a river, railway or motorway cuts the shape with no crossing nearby.
 4. Route the best candidates with corridor A*: each street costs `length × (1 + (gap/σ)² + 0.8 × (1 − alignment))`, so streets close to and parallel with the drawing win. Out-and-backs are allowed (thin parts can be run both ways on one street); short accidental stubs are trimmed.
@@ -45,6 +46,6 @@ If street data can't be downloaded, the app falls back to OSRM routing, then to 
 
 ## Notes and limits
 
-- Uses public free services (OSM tiles, Overpass, routing.openstreetmap.de, Nominatim). Fine for a prototype; for a public launch, host your own tiles and OSRM, or use a paid provider.
+- Uses public free services (OSM tiles, OpenFreeMap, Overpass, routing.openstreetmap.de, Nominatim). Fine for a prototype; for a public launch, host your own tiles and OSRM, or use a paid provider.
 - Suburbs with irregular streets give lower match scores than grid-like city centres. Fine details (finger stubs, fins) need at least a half-marathon to show.
 - The fundraising link is a placeholder: set `FUNDRAISER_URL` in `src/main.js`.

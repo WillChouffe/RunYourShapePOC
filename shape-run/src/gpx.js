@@ -9,7 +9,7 @@ export function buildGpx({ name, description, points }) {
     .map(([lat, lng]) => `      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}"></trkpt>`)
     .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Shape Run" xmlns="http://www.topografix.com/GPX/1/1"
+<gpx version="1.1" creator="ZobRun" xmlns="http://www.topografix.com/GPX/1/1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
@@ -36,7 +36,7 @@ export function slugify(s) {
       .replace(/[̀-ͯ]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'shape-run'
+      .replace(/^-+|-+$/g, '') || 'zobrun'
   );
 }
 

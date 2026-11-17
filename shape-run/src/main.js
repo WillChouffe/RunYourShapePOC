@@ -16,6 +16,8 @@ import { buildGpx, slugify, downloadText } from './gpx.js';
 
 const ROAD_FACTOR = 1.4; // routed paths run longer than the ideal outline
 const MAX_ITER = 5;
+// Short routes trace shapes badly on real streets, so we start at 8 km.
+const MIN_KM = 8;
 const TOLERANCE = 0.05;
 const FUNDRAISER_URL = '#'; // TODO: replace with the real fundraising page
 
@@ -537,7 +539,7 @@ function setSheet(mode) {
 
 let distFitTimer = null;
 function setDistance(km, source) {
-  km = Math.max(1, Math.min(42.2, Number(km) || 0));
+  km = Math.max(MIN_KM, Math.min(42.2, Number(km) || 0));
   state.distanceKm = Math.round(km * 10) / 10;
   if (source !== 'range') $('distRange').value = state.distanceKm;
   if (source !== 'num') $('distNum').value = state.distanceKm;
@@ -560,7 +562,7 @@ function wire() {
   renderShapeGrid();
 
   $('distRange').addEventListener('input', (e) => setDistance(e.target.value, 'range'));
-  $('distNum').addEventListener('change', (e) => setDistance(e.target.value, 'num'));
+  $('distNum').addEventListener('change', (e) => setDistance(e.target.value)); // writes the clamped value back
   $('distChips').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (b) setDistance(b.dataset.km);
@@ -638,8 +640,8 @@ function exportGpx() {
   const shape = getShape(state.shapeId);
   const km = (r.distance / 1000).toFixed(1);
   const custom = $('eventInput').value.trim();
-  const name = custom || `Shape Run - ${shape.name} ${km} km`;
-  const description = `${shape.name} GPS art route, ${km} km, generated with Shape Run.`;
+  const name = custom || `ZobRun - ${shape.name} ${km} km`;
+  const description = `${shape.name} GPS art route, ${km} km, generated with ZobRun.`;
   downloadText(`${slugify(name)}.gpx`, buildGpx({ name, description, points: r.path }));
   toast('GPX downloaded. Import it in Strava → My Routes.', 'ok');
 }

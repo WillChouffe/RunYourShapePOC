@@ -1,4 +1,4 @@
-# Shape Run
+# ZobRun
 
 Generate GPS-art running routes (heart, awareness ribbon, "La Grande Barre", fish, mustache, star) and export them as GPX for Strava, Garmin or Komoot. Frontend only, no backend, no API keys.
 

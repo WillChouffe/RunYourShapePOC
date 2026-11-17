@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#07040f" />
-    <meta name="description" content="Shape Run: generate GPS art running routes and export them to Strava." />
-    <title>Shape Run</title>
+    <meta name="description" content="ZobRun: generate GPS art running routes and export them to Strava." />
+    <title>ZobRun</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,7 +21,7 @@
           <svg class="brand-mark" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
             <path d="M3 4h3v1h1v1h2V5h1V4h3v1h1v4h-1v1h-1v1h-1v1h-1v1H8v-1H7v-1H6v-1H5V9H4V8H3V5z" />
           </svg>
-          <h1 class="brand-title">SHAPE<span>RUN</span></h1>
+          <h1 class="brand-title">ZOB<span>RUN</span></h1>
           <span class="brand-badge">1P</span>
         </div>
         <div class="topbar-actions">
@@ -73,14 +73,13 @@
             <section class="block">
               <h2 class="block-title"><span class="stage-no">2</span>Distance</h2>
               <div class="distance-row">
-                <input id="distRange" type="range" min="2" max="42.2" step="0.1" value="10" aria-label="Distance in kilometres" />
+                <input id="distRange" type="range" min="8" max="42.2" step="0.1" value="10" aria-label="Distance in kilometres" />
                 <label class="num-field">
-                  <input id="distNum" type="number" min="1" max="42.2" step="0.1" value="10" inputmode="decimal" aria-label="Distance in kilometres" />
+                  <input id="distNum" type="number" min="8" max="42.2" step="0.1" value="10" inputmode="decimal" aria-label="Distance in kilometres" />
                   <span>KM</span>
                 </label>
               </div>
               <div class="chips" id="distChips">
-                <button type="button" data-km="5">5K</button>
                 <button type="button" data-km="10">10K</button>
                 <button type="button" data-km="21.1">HALF</button>
                 <button type="button" data-km="42.2">FULL</button>
@@ -206,7 +205,7 @@
       <form method="dialog">
         <h2 id="aboutTitle"><span class="blink">&#9654;</span> ABOUT</h2>
         <p>
-          Shape Run turns your run into GPS art. Charity runs are popping up where every participant draws the same
+          ZobRun turns your run into GPS art. Charity runs are popping up where every participant draws the same
           shape on the map, like <b>La Grande Barre</b> in Anglet, which raises funds for men's cancers
           (prostate and testicular).
         </p>

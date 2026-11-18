@@ -33,10 +33,10 @@ Open http://localhost:5173. `npm run build` outputs a static site to `dist/`.
 
 **Follow roads**:
 1. Download the streets and paths around the start from OpenFreeMap vector tiles (Overpass if that fails), once per area.
-2. Build candidates: the shape and its variants, rotated by up to ±20° (Auto-tune), with the start slid a little along the outline. In a street grid (Manhattan, Eixample…) the dominant street direction is measured and extra candidates are turned so the shape's straight lines run along it.
-3. Pre-score each candidate by how much of its outline runs along a street with the same direction, then check the best ones for bottlenecks: if walking between neighbouring outline points is much longer than the straight line, a river, railway or motorway cuts the shape with no crossing nearby.
+2. Build candidates (Auto-tune): the shape and its variants, at the runner's rotation plus the street-grid-aligned one (grid cities) or ±12° (irregular ones), entered from 8 points around the outline. Each is tried at the pin and at 18 places up to 1.5 km away (reached by running there and back), as one big drawing or a smaller one run 2 or 3 times.
+3. Pre-score all of them (thousands) against a per-direction distance field of the streets: how much of the outline runs close to a street going the same way. The best, plus the best with 2 laps, 3 laps and away from the pin, are checked for bottlenecks: if walking between neighbouring outline points is much longer than the straight line, a river, railway or motorway cuts the shape with no crossing nearby.
 4. Route the best candidates with corridor A*: each street costs `length × (1 + (gap/σ)² + 0.8 × (1 − alignment))`, so streets close to and parallel with the drawing win. Out-and-backs are allowed (thin parts can be run both ways on one street); short accidental stubs are trimmed.
-5. Rescale the best three until the distance is within 3–5% of the target. The winner has the best fidelity minus two penalties: staircasing (street runs at an angle to the drawing next to them) and turning away from the chosen or grid-aligned orientation (stronger in grid cities).
+5. Rescale the best three until approach + laps × loop is within 3–5% of the target. The winner has the best fidelity minus penalties for staircasing (street runs at an angle to the drawing next to them), turning away from the chosen or grid-aligned orientation (stronger in grid cities), the share of the run spent getting to the drawing, and extra laps.
 
 Fidelity (the MATCH %) blends the mean and 90th-percentile gap between route and drawing, relative to the shape size. 0% means the route is on average 5% of the shape size away.
 

@@ -188,38 +188,51 @@ export function shapeBearing(shape) {
   return peak(bearingHist(segs));
 }
 
+/* ------------------------------------------------------------------ */
+/* Candidates: where, how big, how many laps                           */
+/* ------------------------------------------------------------------ */
+
 /**
- * Extra candidates turned so the shape's main lines run along the street
- * grid (the smallest such turn from the user's rotation).
+ * Rotations to try: the runner's, plus the one that lines the shape up
+ * with the street grid (grid cities) or two small turns (irregular ones).
  */
-export function gridCandidates(def, { rotation, mirror, auto }, grid) {
-  if (!auto) return [];
-  const { bearing, strength } = grid;
-  if (strength < 0.45) return []; // not a grid: nothing to align to
-  const sb = shapeBearing(buildShape(def, { rotation, mirror }));
-  let delta = ((bearing - sb) % 90 + 90) % 90; // turn counter-clockwise by delta…
-  if (delta > 45) delta -= 90; // …or the shorter way round
-  const dRot = -Math.round(delta); // rotation is clockwise
-  if (Math.abs(dRot) < 3) return [];
-  return candidates(def, { rotation: rotation + dRot, mirror, auto, rots: [0, -4, 4] })
-    .map((c) => ({ ...c, dRot: c.dRot + dRot, snap: dRot }));
+function rotationsFor(def, { rotation, mirror, auto }, grid) {
+  if (!auto) return [{ dRot: 0, snap: null }];
+  if (grid && grid.strength >= 0.45) {
+    const sb = shapeBearing(buildShape(def, { rotation, mirror }));
+    let delta = ((grid.bearing - sb) % 90 + 90) % 90; // counter-clockwise turn...
+    if (delta > 45) delta -= 90; // ...or the shorter way round
+    const snap = -Math.round(delta); // rotation is clockwise
+    return Math.abs(snap) < 3 ? [{ dRot: 0, snap: 0 }] : [{ dRot: 0, snap }, { dRot: snap, snap }];
+  }
+  return [{ dRot: 0, snap: null }, { dRot: -12, snap: null }, { dRot: 12, snap: null }];
 }
 
-export function candidates(def, { rotation, mirror, auto, rots: rotList }) {
+/**
+ * Every outline to test: variants x rotations x where the loop is entered
+ * (any of 8 points around a closed shape).
+ */
+export function outlines(def, opts, grid) {
+  const { rotation, mirror, auto } = opts;
   const variants = auto ? [def, ...(def.variants || []).map((v) => ({ ...def, ...v }))] : [def];
-  const rots = auto ? rotList || [0, -10, 10, -20, 20] : [0];
-  const shifts = auto && def.closed ? [0, 0.03, -0.03, 0.06, -0.06] : [0];
+  const entries = auto && def.closed ? [0, 1, 2, 3, 4, 5, 6, 7].map((k) => k / 8) : [0];
   const out = [];
   variants.forEach((v, vi) => {
-    for (const dr of rots) {
-      const base = buildShape(v, { rotation: rotation + dr, mirror });
-      for (const sh of shifts) {
-        out.push({ variant: vi, variantName: v.variantName || null, rotation: rotation + dr, dRot: dr, shift: sh, shape: reanchor(base, sh * base.perimeter) });
+    for (const { dRot, snap } of rotationsFor(v, opts, grid)) {
+      const base = buildShape(v, { rotation: rotation + dRot, mirror });
+      for (const u of entries) {
+        out.push({
+          variant: vi, variantName: v.variantName || null, rotation: rotation + dRot, dRot, snap,
+          shift: u, shape: reanchor(base, u * base.perimeter),
+        });
       }
     }
   });
   return out;
 }
+
+/** How far from the start pin the drawing may begin (metres). */
+export const approachMax = (target) => Math.max(400, Math.min(1500, 0.08 * target));
 
 /** Shape in local metres: its start sits on (sx, sy). */
 export function placeXY(shape, scale, sx, sy, pts = shape.dense) {
@@ -231,35 +244,103 @@ export function placeXY(shape, scale, sx, sy, pts = shape.dense) {
 /* Pre-score: does the outline run along streets?                      */
 /* ------------------------------------------------------------------ */
 
+const BINS = 12; // street directions, 15 degrees each (mod 180)
+const CELL = 25; // metres
+
+/**
+ * Distance field per street direction: for each 25 m cell and each 15 deg
+ * direction bin, the distance to the nearest street running that way.
+ * Built once per graph; makes pre-scoring thousands of placements cheap.
+ */
+function streetField(g) {
+  if (g.field) return g.field;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < g.n; i++) {
+    if (g.x[i] < minX) minX = g.x[i]; if (g.x[i] > maxX) maxX = g.x[i];
+    if (g.y[i] < minY) minY = g.y[i]; if (g.y[i] > maxY) maxY = g.y[i];
+  }
+  const W = Math.ceil((maxX - minX) / CELL) + 1;
+  const H = Math.ceil((maxY - minY) / CELL) + 1;
+  const N = W * H;
+  const dt = Array.from({ length: BINS }, () => new Float32Array(N).fill(1e9));
+  const E = g.edges.from.length;
+  for (let k = 0; k < E; k++) {
+    const a = g.edges.from[k];
+    const b = g.edges.to[k];
+    const dx = g.x[b] - g.x[a];
+    const dy = g.y[b] - g.y[a];
+    const l = Math.hypot(dx, dy);
+    if (!l) continue;
+    const ang = ((Math.atan2(dy, dx) / rad) % 180 + 180) % 180;
+    const bin = Math.round(ang / (180 / BINS)) % BINS;
+    const steps = Math.ceil(l / (CELL / 2));
+    for (let t = 0; t <= steps; t++) {
+      const cx = Math.round((g.x[a] + (dx * t) / steps - minX) / CELL);
+      const cy = Math.round((g.y[a] + (dy * t) / steps - minY) / CELL);
+      dt[bin][cy * W + cx] = 0;
+    }
+  }
+  // Two-pass chamfer distance transform (within ~8% of Euclidean).
+  const d1 = CELL;
+  const d2 = CELL * Math.SQRT2;
+  for (const f of dt) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        let v = f[i];
+        if (x > 0 && f[i - 1] + d1 < v) v = f[i - 1] + d1;
+        if (y > 0) {
+          if (f[i - W] + d1 < v) v = f[i - W] + d1;
+          if (x > 0 && f[i - W - 1] + d2 < v) v = f[i - W - 1] + d2;
+          if (x < W - 1 && f[i - W + 1] + d2 < v) v = f[i - W + 1] + d2;
+        }
+        f[i] = v;
+      }
+    }
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1; x >= 0; x--) {
+        const i = y * W + x;
+        let v = f[i];
+        if (x < W - 1 && f[i + 1] + d1 < v) v = f[i + 1] + d1;
+        if (y < H - 1) {
+          if (f[i + W] + d1 < v) v = f[i + W] + d1;
+          if (x < W - 1 && f[i + W + 1] + d2 < v) v = f[i + W + 1] + d2;
+          if (x > 0 && f[i + W - 1] + d2 < v) v = f[i + W - 1] + d2;
+        }
+        f[i] = v;
+      }
+    }
+  }
+  g.field = { minX, minY, W, H, dt };
+  return g.field;
+}
+
 /**
  * Mean "gap to an aligned street" along the outline (lower is better).
- * Streets crossing the outline at an angle do not count, so a river with
- * no bridge where the outline needs one shows up as a large gap.
+ * A street at an angle to the outline costs extra (3 sigma x sin^2: 10 deg
+ * costs 0.1 sigma, 30 deg 0.75 sigma), so diagonals across a grid lose and
+ * a river with no bridge where the outline needs one shows as a big gap.
  */
-export function prescore(g, ideal, sigma) {
-  const pts = resampleXY(ideal, 100);
+export function prescore(g, ideal, sigma, samples = 100) {
+  const F = streetField(g);
+  const pts = resampleXY(ideal, samples);
   const cap = 2.5 * sigma;
   let sum = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     const q = pts[Math.min(pts.length - 1, i + 1)];
     const o = pts[Math.max(0, i - 1)];
-    const tx = q[0] - o[0];
-    const ty = q[1] - o[1];
-    const tl = Math.hypot(tx, ty) || 1;
+    const cx = Math.round((p[0] - F.minX) / CELL);
+    const cy = Math.round((p[1] - F.minY) / CELL);
+    if (cx < 0 || cy < 0 || cx >= F.W || cy >= F.H) { sum += cap; continue; }
+    const th = Math.atan2(q[1] - o[1], q[0] - o[0]);
+    const idx = cy * F.W + cx;
     let best = cap;
-    forEdgesNear(g, p[0], p[1], cap, (k) => {
-      const a = g.edges.from[k];
-      const b = g.edges.to[k];
-      const ex = g.x[b] - g.x[a];
-      const ey = g.y[b] - g.y[a];
-      const el = Math.hypot(ex, ey) || 1;
-      const cos = Math.abs((ex * tx + ey * ty) / (el * tl));
-      // sin² of the angle between street and outline: 10° costs 0.1σ,
-      // 20° costs 0.35σ, 30° costs 0.75σ. Diagonals across a grid lose.
-      const d = segDist(p[0], p[1], g.x[a], g.y[a], g.x[b], g.y[b]) + 3 * sigma * (1 - cos * cos);
+    for (let b = 0; b < BINS; b++) {
+      const s = Math.sin(th - (b * Math.PI) / BINS);
+      const d = F.dt[b][idx] + 3 * sigma * s * s;
       if (d < best) best = d;
-    });
+    }
     sum += best;
   }
   return sum / pts.length;
@@ -404,7 +485,7 @@ export function routeCandidate(g, sc, shape, ideal, detail, sigma) {
     nodes = nodes.length ? nodes.concat(leg.slice(1)) : leg;
   }
   nodes = trimSpurs(g, nodes, 3 * sigma);
-  return { path: nodes.map((i) => [g.x[i], g.y[i]]), skipped };
+  return { nodes, path: nodes.map((i) => [g.x[i], g.y[i]]), skipped };
 }
 
 /**
@@ -468,93 +549,159 @@ export function detourScore(g, sc, ideal, samples = 16) {
 
 export const ROAD_FACTOR = 1.25; // corridor routes run a bit longer than the drawing
 
-/** Bounding box [s, w, n, e] that covers every candidate up to `grow` × its predicted size. */
-export function searchBBox(cands, origin, target, grow = 1.2, marginM = 300) {
+/**
+ * Bounding box [s, w, n, e] for the street download: the full-size drawing
+ * entered from any point of its outline, anywhere within approachMax.
+ */
+export function searchBBox(def, opts, origin, target) {
+  const all = outlines(def, opts, null);
+  // grid-aligned turns are only known once the streets are in: cover +-45 deg
+  if (opts.auto) {
+    all.push(...outlines(def, { ...opts, rotation: opts.rotation + 45 }, null));
+    all.push(...outlines(def, { ...opts, rotation: opts.rotation - 45 }, null));
+  }
   let minX = 0, minY = 0, maxX = 0, maxY = 0;
-  for (const c of cands) {
-    const scale = (target / (c.shape.perimeter * ROAD_FACTOR)) * grow;
+  for (const c of all) {
+    const scale = (target / (c.shape.perimeter * ROAD_FACTOR)) * 1.1;
     for (const [x, y] of placeXY(c.shape, scale, 0, 0)) {
       if (x < minX) minX = x; if (x > maxX) maxX = x;
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
   }
+  const m = (opts.auto ? approachMax(target) : 0) + 300;
   const cosLat = Math.cos(origin.lat * rad);
-  const lat = (m) => origin.lat + (m / R) / rad;
-  const lng = (m) => origin.lng + (m / (R * cosLat)) / rad;
-  return [lat(minY - marginM), lng(minX - marginM), lat(maxY + marginM), lng(maxX + marginM)];
+  const lat = (v) => origin.lat + (v / R) / rad;
+  const lng = (v) => origin.lng + (v / (R * cosLat)) / rad;
+  return [lat(minY - m), lng(minX - m), lat(maxY + m), lng(maxX + m)];
+}
+
+/** Offsets for where the drawing starts: the pin, then two rings around it. */
+function offsets(aMax) {
+  const out = [[0, 0]];
+  for (const [r, n] of [[aMax / 2, 6], [aMax, 12]]) {
+    for (let k = 0; k < n; k++) {
+      const a = (2 * Math.PI * k) / n + (n === 12 ? Math.PI / 12 : 0);
+      out.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+  }
+  return out;
 }
 
 /**
- * Run the full search on graph g. `start` is the pin in g's local metres.
- * Returns the best routed candidate.
+ * Full search on graph g. Each candidate is an outline (variant, rotation,
+ * entry point), a place (offset from the pin, reached by running there and
+ * back) and a number of laps: a smaller drawing run 2-3 times often fits the
+ * streets far better than one huge one. Returns the best routed candidate.
  */
-export function search(g, cands, { start, target, detail, onProgress, grid }) {
-  // In a street grid, turning the shape off the grid axes ruins it; in an
-  // irregular city a turn costs little.
-  const turnWeight = 0.1 + 0.5 * (grid?.strength ?? 0);
+export function search(g, def, opts, { start, target, detail, onProgress, grid }) {
   const sc = makeScratch(g.n);
   const [sx, sy] = start;
-  const scale0 = (c) => target / (c.shape.perimeter * ROAD_FACTOR);
+  const { auto } = opts;
+  const turnWeight = 0.1 + 0.5 * (grid?.strength ?? 0);
+  const shapes = outlines(def, opts, grid);
+  const aMax = approachMax(target);
+  const offs = auto ? offsets(aMax) : [[0, 0]];
+  const laps = auto && def.closed ? [1, 2, 3] : [1];
+  const minLoop = Math.max(3000, 0.2 * target);
 
-  // 1. Pre-score every placement.
-  onProgress?.({ stage: 2, text: `Testing ${cands.length} placements against the street grid…` });
-  const scored = cands.map((c) => {
-    const s = scale0(c);
-    const sigma = Math.max(25, 0.02 * s);
-    return { ...c, pre: prescore(g, placeXY(c.shape, s, sx, sy), sigma) / sigma };
-  }).sort((a, b) => a.pre - b.pre);
+  // 1. Pre-score every (outline, laps, place).
+  const best = new Map(); // best per (outline, laps, at pin or away): keeps the shortlist diverse
+  let tested = 0;
+  onProgress?.({ stage: 2, text: 'Searching the neighbourhood for streets that draw your shape...' });
+  shapes.forEach((s, si) => {
+    for (const K of laps) {
+      for (const [ox, oy] of offs) {
+        const approach = 2 * 1.3 * Math.hypot(ox, oy);
+        const loopT = (target - approach) / K;
+        if (loopT < minLoop) continue;
+        const scale = loopT / (s.shape.perimeter * ROAD_FACTOR);
+        const sigma = Math.max(25, 0.02 * scale);
+        const ideal = placeXY(s.shape, scale, sx + ox, sy + oy);
+        const pre = prescore(g, ideal, sigma, 50) / sigma + 3 * (approach / target) + 0.05 * (K - 1);
+        tested++;
+        const key = `${si}:${K}:${ox || oy ? 'away' : 'pin'}`;
+        const cur = best.get(key);
+        if (!cur || pre < cur.pre) best.set(key, { ...s, laps: K, ox, oy, scale, pre });
+      }
+    }
+  });
 
-  // 2. Bottlenecks: among the best pre-scores, penalise outlines that rivers
-  //    or railways cut without a nearby crossing.
-  onProgress?.({ stage: 2, text: 'Checking rivers, railways and bridges…' });
-  const shortlist = scored.slice(0, Math.min(18, scored.length)).map((c) => {
-    const s = scale0(c);
-    return { ...c, pre: c.pre + 2 * detourScore(g, sc, placeXY(c.shape, s, sx, sy)) };
-  }).sort((a, b) => a.pre - b.pre);
+  // 2. Bottlenecks (rivers, railways) on the best of them.
+  onProgress?.({ stage: 2, text: 'Checking rivers, railways and bridges...' });
+  // Keep room for every kind of solution: the best overall, plus the best
+  // ones with 2 and 3 laps and the best ones away from the pin.
+  const ranked = [...best.values()].sort((a, b) => a.pre - b.pre);
+  const picked = new Set(ranked.slice(0, 24));
+  for (const keep of [(c) => c.laps === 2, (c) => c.laps === 3, (c) => c.ox || c.oy]) {
+    ranked.filter(keep).slice(0, 4).forEach((c) => picked.add(c));
+  }
+  const shortlist = [...picked].map((c) => ({
+    ...c, pre: c.pre + 2 * detourScore(g, sc, placeXY(c.shape, c.scale, sx + c.ox, sy + c.oy), 12),
+  })).sort((a, b) => a.pre - b.pre);
 
-  // 3. Route the most promising ones at the predicted size.
-  const top = shortlist.slice(0, Math.min(6, shortlist.length));
+  // 3. Route the most promising ones.
+  const startNode = nearestNode(g, sx, sy).node;
+  const kinds = [(c) => c.laps === 2, (c) => c.laps === 3, (c) => c.ox || c.oy];
+  const top = [...new Set([...shortlist.slice(0, 14), ...kinds.map((k) => shortlist.find(k)).filter(Boolean)])];
   const routed = [];
   top.forEach((c, i) => {
-    onProgress?.({ stage: 3, text: `Routing candidate ${i + 1}/${top.length}…` });
-    const r = tryScale(g, sc, c, scale0(c), sx, sy, detail);
+    onProgress?.({ stage: 3, text: `Routing candidate ${i + 1}/${top.length}...` });
+    const r = tryPlace(g, sc, c, c.scale, startNode, sx, sy, detail);
     if (r) routed.push(r);
   });
   if (!routed.length) return null;
 
-  // 4. Fine-tune the size of the best few so the distance hits the target.
-  //    Pick them on shape quality alone: the fit fixes the distance.
+  // 4. Fit the size of the best few (on shape quality: the fit fixes distance).
   routed.sort((a, b) => rank(b, null, turnWeight) - rank(a, null, turnWeight));
   const finals = [];
   routed.slice(0, 3).forEach((first, i) => {
-    onProgress?.({ stage: 4, text: `Fitting the distance (${i + 1}/3)…` });
-    let best = first;
+    onProgress?.({ stage: 4, text: `Fitting the distance (${i + 1}/3)...` });
+    let bestR = first;
     const tries = [first];
-    let scale = first.scale;
-    const min = 0.7 * scale0(first);
-    const max = 1.2 * scale0(first);
-    for (let it = 0; it < 7 && Math.abs(best.distance - target) / target > 0.025; it++) {
-      scale = nextScale(tries, scale, target, min, max);
-      const r = tryScale(g, sc, first, scale, sx, sy, detail);
+    const min = 0.6 * first.scale;
+    const max = 1.4 * first.scale;
+    for (let it = 0; it < 7 && Math.abs(bestR.distance - target) / target > 0.025; it++) {
+      const scale = nextScale(tries, target, min, max);
+      const r = tryPlace(g, sc, first, scale, startNode, sx, sy, detail);
       if (!r) break;
       tries.push(r);
-      if (rank(r, target, turnWeight) > rank(best, target, turnWeight)) best = r;
+      if (rank(r, target, turnWeight) > rank(bestR, target, turnWeight)) bestR = r;
     }
-    finals.push(best);
+    finals.push(bestR);
   });
   finals.sort((a, b) => rank(b, target, turnWeight) - rank(a, target, turnWeight));
-  return finals[0];
+  return { ...finals[0], tested };
 }
 
-function tryScale(g, sc, c, scale, sx, sy, detail) {
+/** Route one candidate at one size: run to the drawing, K laps, run back. */
+function tryPlace(g, sc, c, scale, startNode, sx, sy, detail) {
   const sigma = Math.max(25, 0.02 * scale);
-  const ideal = placeXY(c.shape, scale, sx, sy);
+  const ideal = placeXY(c.shape, scale, sx + c.ox, sy + c.oy);
   const r = routeCandidate(g, sc, c.shape, ideal, detail, sigma);
-  if (!r || r.path.length < 2) return null;
-  const distance = lengthXY(r.path);
+  if (!r || r.nodes.length < 2) return null;
+  let loop = r.nodes;
+  const entry = loop[0];
+  if (c.shape.closed && loop[loop.length - 1] !== entry) {
+    const close = corridorLeg(g, sc, loop[loop.length - 1], entry, null, 1);
+    if (!close) return null;
+    loop = loop.concat(close.slice(1));
+  }
+  const there = corridorLeg(g, sc, startNode, entry, null, 1);
+  const back = c.shape.closed
+    ? there && there.slice().reverse()
+    : corridorLeg(g, sc, loop[loop.length - 1], startNode, null, 1);
+  if (!there || !back) return null;
+  let nodes = there;
+  for (let k = 0; k < c.laps; k++) nodes = nodes.concat(loop.slice(1));
+  nodes = nodes.concat(back.slice(1));
+  const xy = (ns) => ns.map((i) => [g.x[i], g.y[i]]);
+  const loopPath = xy(loop);
+  const loopLen = lengthXY(loopPath);
+  const approach = lengthXY(xy(there)) + lengthXY(xy(back));
   return {
-    ...c, scale, ideal, path: r.path, skipped: r.skipped, distance,
-    match: fidelity(r.path, ideal, scale), wobble: wobble(r.path, ideal),
+    ...c, scale, ideal, loop: loopPath, path: xy(nodes), skipped: r.skipped,
+    loopLen, approach, distance: approach + c.laps * loopLen,
+    match: fidelity(loopPath, ideal, scale), wobble: wobble(loopPath, ideal),
   };
 }
 
@@ -578,20 +725,23 @@ function wobble(path, ideal) {
   }
   return total ? sum / total : 0;
 }
-
 /**
  * Higher is better: shape fidelity, minus staircasing, minus turning away
- * from the chosen (or grid-aligned) orientation, with a steep penalty past
- * 5% distance error (skipped when target is null).
+ * from the chosen (or grid-aligned) orientation, minus the run to and from
+ * the drawing and extra laps, with a steep penalty past 5% distance error
+ * (skipped when target is null).
  */
 function rank(r, target, turnWeight = 0.4) {
   const err = target ? Math.abs(r.distance - target) / target : 0;
-  // Respect the orientation the runner chose (or the street grid's one).
-  const turn = Math.min(Math.abs(r.dRot), r.snap != null ? Math.abs(r.dRot - r.snap) : Infinity);
-  return r.match - 1500 * Math.max(0, err - 0.05) - 30 * err - 60 * r.wobble - turnWeight * turn;
+  const turn = r.snap != null ? Math.min(Math.abs(r.dRot), Math.abs(r.dRot - r.snap)) : Math.abs(r.dRot);
+  return r.match - 1500 * Math.max(0, err - 0.05) - 30 * err - 60 * r.wobble - turnWeight * turn
+    - 40 * (r.approach / r.distance) - 2 * (r.laps - 1);
 }
 
-function nextScale(tries, current, target, min, max) {
+/** Next size to try so that approach + laps x loop hits the target. */
+function nextScale(tries, target, min, max) {
+  const last = tries[tries.length - 1];
+  const loopT = (target - last.approach) / last.laps;
   const below = tries.filter((t) => t.distance < target).sort((a, b) => b.distance - a.distance)[0];
   const above = tries.filter((t) => t.distance > target).sort((a, b) => a.distance - b.distance)[0];
   let s;
@@ -599,9 +749,8 @@ function nextScale(tries, current, target, min, max) {
     const w = (target - below.distance) / (above.distance - below.distance);
     s = below.scale + w * (above.scale - below.scale);
   } else {
-    const last = tries[tries.length - 1];
-    s = last.scale * Math.max(0.75, Math.min(1.3, target / last.distance));
+    s = last.scale * Math.max(0.75, Math.min(1.3, loopT / last.loopLen));
   }
-  if (Math.abs(s - current) < 1e-6) s = current * (1 + 0.02 * Math.sign(target - tries[tries.length - 1].distance));
+  if (tries.some((t) => Math.abs(t.scale - s) < 1e-6 * s)) s *= 1 + 0.02 * Math.sign(target - last.distance);
   return Math.max(min, Math.min(max, s));
 }

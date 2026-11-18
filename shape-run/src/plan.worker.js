@@ -5,7 +5,7 @@
 import { getShape } from './shapes.js';
 import { fetchNetwork, buildGraph, linesFromOverpass } from './osm.js';
 import { fetchTileLines } from './tiles.js';
-import { candidates, gridCandidates, gridBearing, searchBBox, search, toLatLng } from './planner.js';
+import { gridBearing, searchBBox, search, toLatLng } from './planner.js';
 
 let cache = null; // { bbox, graph }
 let controller = null;
@@ -19,6 +19,21 @@ function local(origin, p) {
   return [(p.lng - origin.lng) * rad * R * Math.cos(origin.lat * rad), (p.lat - origin.lat) * rad * R];
 }
 
+/** Download the streets in bbox: vector tiles first, Overpass as fallback. */
+async function loadGraph(bbox, start, signal, status) {
+  try {
+    const lines = await fetchTileLines(bbox, signal, status);
+    status('Building the street graph…');
+    return buildGraph(lines, start, { repair: true });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    console.warn('Vector tiles failed, trying Overpass', e);
+    const elements = await fetchNetwork(bbox, signal, status);
+    status('Building the street graph…');
+    return buildGraph(linesFromOverpass(elements), start);
+  }
+}
+
 self.onmessage = async ({ data }) => {
   if (data.type === 'cancel') {
     controller?.abort();
@@ -30,34 +45,17 @@ self.onmessage = async ({ data }) => {
   const progress = (p) => self.postMessage({ type: 'progress', ...p });
   try {
     const def = getShape(shapeId);
-    const cands = candidates(def, { rotation, mirror, auto });
-    // Download enough for any grid-aligned turn (up to ±45°) too.
-    const bbox = searchBBox(auto ? candidates(def, { rotation, mirror, auto, rots: [0, -45, -30, -15, 15, 30, 45] }) : cands, start, target);
-
+    const opts = { rotation, mirror, auto };
+    const bbox = searchBBox(def, opts, start, target);
     if (!cache || !inside(bbox, cache.bbox)) {
       progress({ stage: 1, text: 'Downloading streets & paths around you…' });
-      const status = (text) => progress({ stage: 1, text });
-      let graph;
-      try {
-        // Primary: OpenFreeMap vector tiles (CDN, no rate limits).
-        const lines = await fetchTileLines(bbox, controller.signal, status);
-        status('Building the street graph…');
-        graph = buildGraph(lines, start, { repair: true });
-      } catch (e) {
-        if (e.name === 'AbortError') throw e;
-        // Fallback: public Overpass servers.
-        console.warn('Vector tiles failed, trying Overpass', e);
-        const elements = await fetchNetwork(bbox, controller.signal, status);
-        status('Building the street graph…');
-        graph = buildGraph(linesFromOverpass(elements), start);
-      }
+      const graph = await loadGraph(bbox, start, controller.signal, (text) => progress({ stage: 1, text }));
       cache = { bbox, graph };
     }
     const g = cache.graph;
     const origin = local(g.origin, start);
     const grid = gridBearing(g, origin[0], origin[1], 2500);
-    cands.push(...gridCandidates(def, { rotation, mirror, auto }, grid));
-    const best = search(g, cands, { start: origin, target, detail, onProgress: progress, grid });
+    const best = search(g, def, opts, { start: origin, target, detail, onProgress: progress, grid });
     if (!best) throw new Error('No route found on the street network here');
 
     self.postMessage({
@@ -73,7 +71,10 @@ self.onmessage = async ({ data }) => {
       shift: best.shift,
       variant: best.variant,
       variantName: best.variantName,
-      tested: cands.length,
+      laps: best.laps,
+      approach: best.approach,
+      moved: Math.round(Math.hypot(best.ox, best.oy)),
+      tested: best.tested,
     });
   } catch (e) {
     self.postMessage({ type: 'error', name: e.name, message: e.message });

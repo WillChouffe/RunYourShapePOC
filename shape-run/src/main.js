@@ -469,8 +469,10 @@ async function generate() {
     showResult(result);
     if (result.engine === 'streets' && state.auto) {
       const bits = [];
+      if (result.laps > 1) bits.push(`${result.laps} laps of a smaller drawing`);
+      if (result.moved) bits.push(`drawn ${(result.moved / 1000).toFixed(1)} km from the pin (${(result.approach / 1000).toFixed(1)} km there & back)`);
       if (result.dRot) bits.push(`rotated ${result.dRot > 0 ? '+' : ''}${result.dRot}°`);
-      if (result.shift) bits.push('start slid along the outline');
+      if (result.shift) bits.push('joined at another point of the outline');
       if (result.variantName) bits.push(`${result.variantName} variant`);
       toast(`Auto-tune tested ${result.tested} placements${bits.length ? `: ${bits.join(', ')}` : ', the original fits best'}.`, 'ok', 6500);
     }

@@ -33,10 +33,10 @@ Open http://localhost:5173. `npm run build` outputs a static site to `dist/`.
 
 **Follow roads**:
 1. Download the streets and paths around the start from OpenFreeMap vector tiles (Overpass if that fails), once per area.
-2. Build candidates: the shape and its variants, rotated by up to ±30° (Auto-tune), with the start slid a little along the outline.
+2. Build candidates: the shape and its variants, rotated by up to ±20° (Auto-tune), with the start slid a little along the outline. In a street grid (Manhattan, Eixample…) the dominant street direction is measured and extra candidates are turned so the shape's straight lines run along it.
 3. Pre-score each candidate by how much of its outline runs along a street with the same direction, then check the best ones for bottlenecks: if walking between neighbouring outline points is much longer than the straight line, a river, railway or motorway cuts the shape with no crossing nearby.
 4. Route the best candidates with corridor A*: each street costs `length × (1 + (gap/σ)² + 0.8 × (1 − alignment))`, so streets close to and parallel with the drawing win. Out-and-backs are allowed (thin parts can be run both ways on one street); short accidental stubs are trimmed.
-5. Rescale the best three until the distance is within 3–5% of the target, and keep the one with the best fidelity.
+5. Rescale the best three until the distance is within 3–5% of the target. The winner has the best fidelity minus two penalties: staircasing (street runs at an angle to the drawing next to them) and turning away from the chosen or grid-aligned orientation (stronger in grid cities).
 
 Fidelity (the MATCH %) blends the mean and 90th-percentile gap between route and drawing, relative to the shape size. 0% means the route is on average 5% of the shape size away.
 

@@ -5,7 +5,7 @@
 import { getShape } from './shapes.js';
 import { fetchNetwork, buildGraph, linesFromOverpass } from './osm.js';
 import { fetchTileLines } from './tiles.js';
-import { candidates, searchBBox, search, toLatLng } from './planner.js';
+import { candidates, gridCandidates, gridBearing, searchBBox, search, toLatLng } from './planner.js';
 
 let cache = null; // { bbox, graph }
 let controller = null;
@@ -31,7 +31,8 @@ self.onmessage = async ({ data }) => {
   try {
     const def = getShape(shapeId);
     const cands = candidates(def, { rotation, mirror, auto });
-    const bbox = searchBBox(cands, start, target);
+    // Download enough for any grid-aligned turn (up to ±45°) too.
+    const bbox = searchBBox(auto ? candidates(def, { rotation, mirror, auto, rots: [0, -45, -30, -15, 15, 30, 45] }) : cands, start, target);
 
     if (!cache || !inside(bbox, cache.bbox)) {
       progress({ stage: 1, text: 'Downloading streets & paths around you…' });
@@ -53,7 +54,10 @@ self.onmessage = async ({ data }) => {
       cache = { bbox, graph };
     }
     const g = cache.graph;
-    const best = search(g, cands, { start: local(g.origin, start), target, detail, onProgress: progress });
+    const origin = local(g.origin, start);
+    const grid = gridBearing(g, origin[0], origin[1], 2500);
+    cands.push(...gridCandidates(def, { rotation, mirror, auto }, grid));
+    const best = search(g, cands, { start: origin, target, detail, onProgress: progress, grid });
     if (!best) throw new Error('No route found on the street network here');
 
     self.postMessage({

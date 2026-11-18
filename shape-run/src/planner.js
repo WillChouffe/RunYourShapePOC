@@ -134,9 +134,80 @@ function waypointIdx(shape, n) {
   return [...marks].sort((a, b) => a - b);
 }
 
-export function candidates(def, { rotation, mirror, auto }) {
+/* ------------------------------------------------------------------ */
+/* Street-grid orientation                                             */
+/* ------------------------------------------------------------------ */
+
+/** Length-weighted histogram of bearings mod 90° (1° bins), lightly smoothed. */
+function bearingHist(segs) {
+  const h = new Float64Array(90);
+  for (const [dx, dy] of segs) {
+    const l = Math.hypot(dx, dy);
+    if (!l) continue;
+    const a = ((Math.atan2(dy, dx) / rad) % 90 + 90) % 90;
+    h[Math.floor(a) % 90] += l;
+  }
+  const out = new Float64Array(90);
+  for (let i = 0; i < 90; i++) for (let k = -3; k <= 3; k++) out[i] += h[(i + k + 90) % 90] * (4 - Math.abs(k));
+  return out;
+}
+
+const peak = (h) => h.reduce((b, v, i) => (v > h[b] ? i : b), 0);
+
+/**
+ * Dominant street direction (degrees mod 90, counter-clockwise from east)
+ * within `radius` of (px, py), and how strongly the area is a grid (0-1:
+ * share of street length within ±8° of the two main axes).
+ */
+export function gridBearing(g, px, py, radius) {
+  const segs = [];
+  forEdgesNear(g, px, py, radius, (k) => {
+    const a = g.edges.from[k];
+    const b = g.edges.to[k];
+    segs.push([g.x[b] - g.x[a], g.y[b] - g.y[a]]);
+  });
+  const h = bearingHist(segs);
+  const best = peak(h);
+  let on = 0;
+  let all = 0;
+  for (const [dx, dy] of segs) {
+    const l = Math.hypot(dx, dy);
+    const a = ((Math.atan2(dy, dx) / rad) % 90 + 90) % 90;
+    const diff = Math.min(Math.abs(a - best), 90 - Math.abs(a - best));
+    all += l;
+    if (diff <= 8) on += l;
+  }
+  return { bearing: best, strength: all ? on / all : 0 };
+}
+
+/** Dominant direction of the straight parts of a shape (degrees mod 90). */
+export function shapeBearing(shape) {
+  const segs = [];
+  const d = shape.dense;
+  for (let i = 1; i < d.length; i++) segs.push([d[i][0] - d[i - 1][0], d[i][1] - d[i - 1][1]]);
+  return peak(bearingHist(segs));
+}
+
+/**
+ * Extra candidates turned so the shape's main lines run along the street
+ * grid (the smallest such turn from the user's rotation).
+ */
+export function gridCandidates(def, { rotation, mirror, auto }, grid) {
+  if (!auto) return [];
+  const { bearing, strength } = grid;
+  if (strength < 0.45) return []; // not a grid: nothing to align to
+  const sb = shapeBearing(buildShape(def, { rotation, mirror }));
+  let delta = ((bearing - sb) % 90 + 90) % 90; // turn counter-clockwise by delta…
+  if (delta > 45) delta -= 90; // …or the shorter way round
+  const dRot = -Math.round(delta); // rotation is clockwise
+  if (Math.abs(dRot) < 3) return [];
+  return candidates(def, { rotation: rotation + dRot, mirror, auto, rots: [0, -4, 4] })
+    .map((c) => ({ ...c, dRot: c.dRot + dRot, snap: dRot }));
+}
+
+export function candidates(def, { rotation, mirror, auto, rots: rotList }) {
   const variants = auto ? [def, ...(def.variants || []).map((v) => ({ ...def, ...v }))] : [def];
-  const rots = auto ? [0, -10, 10, -20, 20, -30, 30] : [0];
+  const rots = auto ? rotList || [0, -10, 10, -20, 20] : [0];
   const shifts = auto && def.closed ? [0, 0.03, -0.03, 0.06, -0.06] : [0];
   const out = [];
   variants.forEach((v, vi) => {
@@ -184,7 +255,9 @@ export function prescore(g, ideal, sigma) {
       const ey = g.y[b] - g.y[a];
       const el = Math.hypot(ex, ey) || 1;
       const cos = Math.abs((ex * tx + ey * ty) / (el * tl));
-      const d = segDist(p[0], p[1], g.x[a], g.y[a], g.x[b], g.y[b]) + (cos < 0.8 ? sigma : 0);
+      // sin² of the angle between street and outline: 10° costs 0.1σ,
+      // 20° costs 0.35σ, 30° costs 0.75σ. Diagonals across a grid lose.
+      const d = segDist(p[0], p[1], g.x[a], g.y[a], g.x[b], g.y[b]) + 3 * sigma * (1 - cos * cos);
       if (d < best) best = d;
     });
     sum += best;
@@ -415,7 +488,10 @@ export function searchBBox(cands, origin, target, grow = 1.2, marginM = 300) {
  * Run the full search on graph g. `start` is the pin in g's local metres.
  * Returns the best routed candidate.
  */
-export function search(g, cands, { start, target, detail, onProgress }) {
+export function search(g, cands, { start, target, detail, onProgress, grid }) {
+  // In a street grid, turning the shape off the grid axes ruins it; in an
+  // irregular city a turn costs little.
+  const turnWeight = 0.1 + 0.5 * (grid?.strength ?? 0);
   const sc = makeScratch(g.n);
   const [sx, sy] = start;
   const scale0 = (c) => target / (c.shape.perimeter * ROAD_FACTOR);
@@ -447,7 +523,8 @@ export function search(g, cands, { start, target, detail, onProgress }) {
   if (!routed.length) return null;
 
   // 4. Fine-tune the size of the best few so the distance hits the target.
-  routed.sort((a, b) => rank(b, target) - rank(a, target));
+  //    Pick them on shape quality alone: the fit fixes the distance.
+  routed.sort((a, b) => rank(b, null, turnWeight) - rank(a, null, turnWeight));
   const finals = [];
   routed.slice(0, 3).forEach((first, i) => {
     onProgress?.({ stage: 4, text: `Fitting the distance (${i + 1}/3)…` });
@@ -461,11 +538,11 @@ export function search(g, cands, { start, target, detail, onProgress }) {
       const r = tryScale(g, sc, first, scale, sx, sy, detail);
       if (!r) break;
       tries.push(r);
-      if (rank(r, target) > rank(best, target)) best = r;
+      if (rank(r, target, turnWeight) > rank(best, target, turnWeight)) best = r;
     }
     finals.push(best);
   });
-  finals.sort((a, b) => rank(b, target) - rank(a, target));
+  finals.sort((a, b) => rank(b, target, turnWeight) - rank(a, target, turnWeight));
   return finals[0];
 }
 
@@ -475,13 +552,43 @@ function tryScale(g, sc, c, scale, sx, sy, detail) {
   const r = routeCandidate(g, sc, c.shape, ideal, detail, sigma);
   if (!r || r.path.length < 2) return null;
   const distance = lengthXY(r.path);
-  return { ...c, scale, ideal, path: r.path, skipped: r.skipped, distance, match: fidelity(r.path, ideal, scale) };
+  return {
+    ...c, scale, ideal, path: r.path, skipped: r.skipped, distance,
+    match: fidelity(r.path, ideal, scale), wobble: wobble(r.path, ideal),
+  };
 }
 
-/** Higher is better: shape fidelity first, with a steep penalty past 5% distance error. */
-function rank(r, target) {
-  const err = Math.abs(r.distance - target) / target;
-  return r.match - 1500 * Math.max(0, err - 0.05) - 30 * err;
+/**
+ * Staircase measure: length-weighted mean |sin| of the angle between each
+ * street run and the drawing next to it. A route that runs along its
+ * drawing scores ~0.1; a diagonal staircased across a grid ~0.5.
+ */
+function wobble(path, ideal) {
+  const poly = resampleXY(ideal, 200);
+  let sum = 0;
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    const dx = path[i][0] - path[i - 1][0];
+    const dy = path[i][1] - path[i - 1][1];
+    const l = Math.hypot(dx, dy);
+    if (l < 1) continue;
+    const [, cos] = polyDistAlign((path[i][0] + path[i - 1][0]) / 2, (path[i][1] + path[i - 1][1]) / 2, dx, dy, poly);
+    sum += l * Math.sqrt(Math.max(0, 1 - cos * cos));
+    total += l;
+  }
+  return total ? sum / total : 0;
+}
+
+/**
+ * Higher is better: shape fidelity, minus staircasing, minus turning away
+ * from the chosen (or grid-aligned) orientation, with a steep penalty past
+ * 5% distance error (skipped when target is null).
+ */
+function rank(r, target, turnWeight = 0.4) {
+  const err = target ? Math.abs(r.distance - target) / target : 0;
+  // Respect the orientation the runner chose (or the street grid's one).
+  const turn = Math.min(Math.abs(r.dRot), r.snap != null ? Math.abs(r.dRot - r.snap) : Infinity);
+  return r.match - 1500 * Math.max(0, err - 0.05) - 30 * err - 60 * r.wobble - turnWeight * turn;
 }
 
 function nextScale(tries, current, target, min, max) {

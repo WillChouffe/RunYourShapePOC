@@ -455,32 +455,141 @@ function corridorLeg(g, sc, src, dst, corridor, sigma, maxPops = 1500000) {
  * Route one placed candidate. ideal: the drawing in local metres
  * (dense, starting at the start pin). Returns { path, skipped }.
  */
-export function routeCandidate(g, sc, shape, ideal, detail, sigma) {
-  // The corridor keeps the path on the outline between waypoints, so far
-  // fewer hard waypoints are needed than with a shortest-path router.
+/** Up to k nodes near (px, py) to pin a waypoint on, intersections first. */
+function snapChoices(g, px, py, r, k = 6) {
+  const seen = new Set();
+  const out = [];
+  forEdgesNear(g, px, py, r, (e) => {
+    for (const i of [g.edges.from[e], g.edges.to[e]]) {
+      if (seen.has(i) || g.comp[i] !== g.main || g.off[i + 1] - g.off[i] < 3) continue;
+      seen.add(i);
+      const d = Math.hypot(g.x[i] - px, g.y[i] - py);
+      if (d <= r) out.push({ node: i, d });
+    }
+  });
+  out.sort((p, q) => p.d - q.d);
+  const near = nearestNode(g, px, py); // fallback when no crossing is close
+  if (near.node >= 0 && !seen.has(near.node)) out.push({ node: near.node, d: near.dist });
+  return out.slice(0, k);
+}
+
+/** Mean gap (m) between the straight line a->b and a street running the same way. */
+function straightGap(g, a, b) {
+  const F = streetField(g);
+  const dx = g.x[b] - g.x[a];
+  const dy = g.y[b] - g.y[a];
+  const n = Math.floor(Math.hypot(dx, dy) / CELL);
+  if (n < 2) return 0;
+  const ang = ((Math.atan2(dy, dx) / rad) % 180 + 180) % 180;
+  const bin = Math.round(ang / (180 / BINS)) % BINS;
+  const bins = [bin, (bin + 1) % BINS, (bin + BINS - 1) % BINS];
+  let sum = 0;
+  for (let t = 1; t < n; t++) {
+    const cx = Math.round((g.x[a] + (dx * t) / n - F.minX) / CELL);
+    const cy = Math.round((g.y[a] + (dy * t) / n - F.minY) / CELL);
+    const idx = cy * F.W + cx;
+    let best = 1e9;
+    for (const q of bins) if (F.dt[q][idx] < best) best = F.dt[q][idx];
+    sum += Math.min(best, 400);
+  }
+  return sum / (n - 1);
+}
+
+/**
+ * Pick one node per waypoint for the whole drawing at once (Viterbi). A node
+ * is good if it is close to its waypoint, and a pair of consecutive nodes is
+ * good if it keeps the drawing's segment (same offset between them) AND a
+ * street runs straight between them. So corners land on crossings and the
+ * lines between them on real streets, not each waypoint on its nearest node.
+ */
+function pinWaypoints(g, pts, choices, sigma, closed) {
+  const unary = (c) => (c.d / sigma) ** 2;
+  const pair = (i, a, b) => {
+    const vx = pts[i][0] - pts[i - 1][0];
+    const vy = pts[i][1] - pts[i - 1][1];
+    const ex = g.x[b.node] - g.x[a.node] - vx;
+    const ey = g.y[b.node] - g.y[a.node] - vy;
+    return 0.5 * (ex * ex + ey * ey) / (sigma * sigma) + straightGap(g, a.node, b.node) / sigma;
+  };
+  const solve = (first) => {
+    let cost = choices[0].map((c, j) => (first == null || j === first ? unary(c) : Infinity));
+    const back = [];
+    for (let i = 1; i < choices.length; i++) {
+      const lastStep = closed && i === choices.length - 1;
+      const bp = [];
+      cost = choices[i].map((c, j) => {
+        if (lastStep && c.node !== choices[0][first].node) { bp.push(0); return Infinity; }
+        let best = Infinity;
+        let arg = 0;
+        choices[i - 1].forEach((p, k) => {
+          if (cost[k] === Infinity) return;
+          const v = cost[k] + pair(i, p, c);
+          if (v < best) { best = v; arg = k; }
+        });
+        bp.push(arg);
+        return best + unary(c);
+      });
+      back.push(bp);
+    }
+    let j = cost.indexOf(Math.min(...cost));
+    const total = cost[j];
+    const pick = [j];
+    for (let i = back.length - 1; i >= 0; i--) pick.unshift(j = back[i][j]);
+    return { total, pick };
+  };
+  let best = null;
+  const starts = closed ? choices[0].map((_, j) => j) : [null];
+  for (const f of starts) {
+    if (closed && !choices[choices.length - 1].some((c) => c.node === choices[0][f].node)) {
+      choices[choices.length - 1].push({ ...choices[0][f] });
+    }
+    const r = solve(f);
+    if (!best || r.total < best.total) best = r;
+  }
+  return best.pick.map((j, i) => choices[i][j].node);
+}
+
+/** The drawing between ideal[i] and ideal[j], bent so its ends sit on nodes a and b. */
+function warp(g, ideal, i, j, a, b) {
+  const seg = ideal.slice(i, j + 1);
+  const cum = cumulative(seg);
+  const L = cum[cum.length - 1] || 1;
+  const ax = g.x[a] - ideal[i][0]; const ay = g.y[a] - ideal[i][1];
+  const bx = g.x[b] - ideal[j][0]; const by = g.y[b] - ideal[j][1];
+  return seg.map(([x, y], k) => {
+    const t = cum[k] / L;
+    return [x + (1 - t) * ax + t * bx, y + (1 - t) * ay + t * by];
+  });
+}
+
+/**
+ * Route one placed drawing. pinned: corners pinned on crossings (Viterbi) and
+ * a tight corridor between them; otherwise each waypoint on its nearest node
+ * with a looser corridor, which suits long diagonals across irregular streets.
+ */
+export function routeCandidate(g, sc, shape, ideal, detail, sigma, pinned = true) {
   const idx = waypointIdx(shape, Math.max(8, Math.round(detail / 2.5)));
   const far = Math.max(150, 3 * sigma);
-  const snaps = [];
+  const r = Math.max(60, 1.5 * sigma);
+  const kept = [];
+  const choices = [];
   let skipped = 0;
   idx.forEach((i, k) => {
-    const s = nearestNode(g, ideal[i][0], ideal[i][1]);
-    const keep = k === 0 || k === idx.length - 1 || s.dist <= far;
-    if (keep && s.node >= 0) snaps.push({ i, node: s.node });
-    else skipped++;
+    const c = snapChoices(g, ideal[i][0], ideal[i][1], r);
+    const ok = c.length && (k === 0 || k === idx.length - 1 || c[0].d <= far);
+    if (ok) { kept.push(i); choices.push(c); } else skipped++;
   });
+  if (kept.length < 2) return null;
+  const pins = pinned
+    ? pinWaypoints(g, kept.map((i) => ideal[i]), choices, sigma, shape.closed)
+    : kept.map((i) => nearestNode(g, ideal[i][0], ideal[i][1]).node);
+  // With the ends pinned, the corridor can be much tighter.
+  const tight = Math.max(20, 0.5 * sigma);
   let nodes = [];
-  for (let k = 1; k < snaps.length; k++) {
-    const a = snaps[k - 1];
-    let b = snaps[k];
-    const corridor = (bi) => ideal.slice(Math.max(0, a.i - 2), Math.min(ideal.length, bi + 3));
-    let leg = corridorLeg(g, sc, a.node, b.node, corridor(b.i), sigma);
-    if (!leg && k + 1 < snaps.length) {
-      // Unreachable waypoint: skip it and aim for the next one.
-      b = snaps[k + 1];
-      leg = corridorLeg(g, sc, a.node, b.node, corridor(b.i), sigma);
-      snaps.splice(k, 1);
-      skipped++;
-    }
+  for (let k = 1; k < pins.length; k++) {
+    const loose = ideal.slice(Math.max(0, kept[k - 1] - 2), kept[k] + 3);
+    const leg = (pinned && corridorLeg(g, sc, pins[k - 1], pins[k], warp(g, ideal, kept[k - 1], kept[k], pins[k - 1], pins[k]), tight))
+      || corridorLeg(g, sc, pins[k - 1], pins[k], loose, sigma);
     if (!leg) return null;
     nodes = nodes.length ? nodes.concat(leg.slice(1)) : leg;
   }
@@ -656,13 +765,14 @@ export function search(g, def, opts, { start, target, detail, onProgress, grid }
   const finals = [];
   routed.slice(0, 3).forEach((first, i) => {
     onProgress?.({ stage: 4, text: `Fitting the distance (${i + 1}/3)...` });
-    let bestR = first;
-    const tries = [first];
+    // Candidates were shortlisted with the quick router; give the finalists both.
+    let bestR = tryPlace(g, sc, first, first.scale, startNode, sx, sy, detail, [true, false]) || first;
+    const tries = [bestR];
     const min = 0.6 * first.scale;
     const max = 1.4 * first.scale;
     for (let it = 0; it < 7 && Math.abs(bestR.distance - target) / target > 0.025; it++) {
       const scale = nextScale(tries, target, min, max);
-      const r = tryPlace(g, sc, first, scale, startNode, sx, sy, detail);
+      const r = tryPlace(g, sc, first, scale, startNode, sx, sy, detail, [true, false]);
       if (!r) break;
       tries.push(r);
       if (rank(r, target, turnWeight) > rank(bestR, target, turnWeight)) bestR = r;
@@ -674,11 +784,16 @@ export function search(g, def, opts, { start, target, detail, onProgress, grid }
 }
 
 /** Route one candidate at one size: run to the drawing, K laps, run back. */
-function tryPlace(g, sc, c, scale, startNode, sx, sy, detail) {
+function tryPlace(g, sc, c, scale, startNode, sx, sy, detail, styles = [false]) {
   const sigma = Math.max(25, 0.02 * scale);
   const ideal = placeXY(c.shape, scale, sx + c.ox, sy + c.oy);
-  const r = routeCandidate(g, sc, c.shape, ideal, detail, sigma);
-  if (!r || r.nodes.length < 2) return null;
+  // Try the given routing styles (pinned or not), keep the one that draws the shape best.
+  const r = styles
+    .map((pinned) => routeCandidate(g, sc, c.shape, ideal, detail, sigma, pinned))
+    .filter((x) => x && x.nodes.length >= 2)
+    .map((x) => ({ ...x, q: fidelity(x.path, ideal, scale) - 60 * wobble(x.path, ideal) }))
+    .sort((a, b) => b.q - a.q)[0];
+  if (!r) return null;
   let loop = r.nodes;
   const entry = loop[0];
   if (c.shape.closed && loop[loop.length - 1] !== entry) {
